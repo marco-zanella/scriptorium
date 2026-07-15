@@ -1,12 +1,14 @@
-name: Deploy SSH Connectivity Spike
+name: Deploy
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
 
 jobs:
-  spike:
+  deploy:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
@@ -27,5 +29,11 @@ jobs:
             StrictHostKeyChecking accept-new
           EOF
           chmod 600 ~/.ssh/config
-      - name: Test connectivity through the jump host
-        run: ssh -F ~/.ssh/config target 'echo ok && docker --version'
+      - name: Sync repo to server
+        run: >-
+          rsync -az --delete --exclude '.git' --exclude '.env'
+          -e "ssh -F ~/.ssh/config" ./ target:${{ vars.DEPLOY_PATH }}/
+      - name: Build and start containers
+        run: ssh -F ~/.ssh/config target "cd ${{ vars.DEPLOY_PATH }} && docker compose up -d --build"
+      - name: Run migrations
+        run: ssh -F ~/.ssh/config target "cd ${{ vars.DEPLOY_PATH }} && docker compose exec -T api alembic upgrade head"
