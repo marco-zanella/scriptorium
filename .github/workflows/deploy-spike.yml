@@ -1,0 +1,31 @@
+name: Deploy SSH Connectivity Spike
+
+on:
+  workflow_dispatch:
+
+jobs:
+  spike:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          cat >> ~/.ssh/config <<EOF
+          Host jump
+            HostName ${{ vars.JUMP_HOST }}
+            User ${{ vars.JUMP_USER }}
+            IdentityFile ~/.ssh/deploy_key
+            StrictHostKeyChecking accept-new
+          Host target
+            HostName ${{ vars.TARGET_HOST }}
+            User ${{ vars.TARGET_USER }}
+            Port ${{ vars.TARGET_PORT }}
+            IdentityFile ~/.ssh/deploy_key
+            ProxyJump jump
+            StrictHostKeyChecking accept-new
+          EOF
+          chmod 600 ~/.ssh/config
+      - name: Test connectivity through the jump host
+        run: ssh -F ~/.ssh/config target 'echo ok && docker --version'
