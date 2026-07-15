@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scriptorium
+          POSTGRES_PASSWORD: scriptorium
+          POSTGRES_DB: scriptorium
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scriptorium"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      POSTGRES_USER: scriptorium
+      POSTGRES_PASSWORD: scriptorium
+      POSTGRES_DB: scriptorium
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e "./backend[dev]"
+      - run: ruff check backend/
+      - run: ruff format --check backend/
+      - run: alembic -c backend/alembic.ini upgrade head
+      - run: pytest backend/tests
