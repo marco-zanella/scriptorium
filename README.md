@@ -22,6 +22,8 @@ docker compose up -d postgres
 # resolve relative to it
 uvicorn app.main:app --reload
 pytest backend/tests
+ruff check backend/      # lint
+ruff format backend/     # format
 ```
 
 `GET /health` should return `{"status": "ok"}` once the app is running.
