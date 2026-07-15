@@ -28,3 +28,12 @@ ruff format backend/     # format
 ```
 
 `GET /health` should return `{"status": "ok"}` once the app is running.
+
+## Creating/resetting the superuser
+
+There is only ever one superuser account. Running this again resets its
+credentials rather than creating a second one:
+
+```bash
+python backend/cli/create_admin.py --username admin --email admin@example.com --password <password>
+```
