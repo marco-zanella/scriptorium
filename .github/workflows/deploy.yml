@@ -32,7 +32,7 @@ jobs:
       - name: Sync repo to server
         run: >-
           rsync -az --delete --exclude '.git' --exclude '.env'
-          -e "ssh -F ~/.ssh/config" ./ target:${{ vars.DEPLOY_PATH }}/
+          -e "ssh -F $HOME/.ssh/config" ./ target:${{ vars.DEPLOY_PATH }}/
       - name: Build and start containers
         run: ssh -F ~/.ssh/config target "cd ${{ vars.DEPLOY_PATH }} && docker compose up -d --build"
       - name: Run migrations
