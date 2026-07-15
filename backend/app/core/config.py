@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     postgres_db: str
     postgres_host: str
     postgres_port: int
+    jwt_secret_key: str
 
     @property
     def database_url(self) -> str:

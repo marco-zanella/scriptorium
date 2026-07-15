@@ -33,6 +33,7 @@ jobs:
       POSTGRES_DB: scriptorium
       POSTGRES_HOST: localhost
       POSTGRES_PORT: 5432
+      JWT_SECRET_KEY: test-only-secret-not-used-in-production
 
     steps:
       - uses: actions/checkout@v4
