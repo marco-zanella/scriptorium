@@ -1,5 +1,5 @@
 from app.registry.analyzers import icu_analysis_settings
-from app.registry.language_pack import LanguagePack
+from app.registry.language_pack import EmbeddingSpec, LanguagePack
 
 LANGUAGE_PACK = LanguagePack(
     iso_code="grc",
@@ -7,4 +7,9 @@ LANGUAGE_PACK = LanguagePack(
     script="Greek",
     directionality="ltr",
     analyzer_settings=icu_analysis_settings(),
+    embedding_spec=EmbeddingSpec(
+        model_id="bowphs/SPhilBerta",
+        revision="main",
+        dimension=768,
+    ),
 )
