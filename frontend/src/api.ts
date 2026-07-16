@@ -1,4 +1,6 @@
-const API_BASE = '/api'
+// BASE_URL always has a trailing slash (Vite guarantees this), so this is
+// "/api" in dev (BASE_URL "/") and "/scriptorium/api" in production.
+const API_BASE = `${import.meta.env.BASE_URL}api`
 
 export class ApiError extends Error {
   status: number
