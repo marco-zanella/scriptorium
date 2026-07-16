@@ -12,5 +12,10 @@ LANGUAGE_PACK = LanguagePack(
         revision="main",
         dimension=768,
         pooling="mean_skip_first",
+        # This fine-tune's own repo ships only weights/config wrapped in the old repo's
+        # custom RetrieverModel container (config.json's model_type: "retriever", weight
+        # keys prefixed "embedding_model."); its embedding_config._name_or_path names the
+        # base model both the tokenizer and the underlying architecture come from.
+        base_model_id="bowphs/LaBerta",
     ),
 )

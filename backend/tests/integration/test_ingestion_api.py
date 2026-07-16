@@ -9,7 +9,7 @@ from app.auth.models import ApiToken, User
 from app.main import app
 from app.registry import get_language_pack, list_language_packs
 from app.search.client import get_client
-from app.search.index_manager import ensure_index
+from app.search.index_manager import ensure_index, index_name
 
 ENG = get_language_pack("eng")
 VECTOR = [0.1] * ENG.embedding_spec.dimension
@@ -155,8 +155,9 @@ def test_ingest_rejects_whole_batch_on_dimension_mismatch(
 ) -> None:
     _, raw_key = _create_token(db_session, scopes=["index_content"])
     os_client = get_client()
-    os_client.indices.refresh(index="eng")
-    before = os_client.count(index="eng")["count"]
+    eng_index = index_name(ENG)
+    os_client.indices.refresh(index=eng_index)
+    before = os_client.count(index=eng_index)["count"]
 
     documents = [
         _valid_document(verse="1"),
@@ -169,8 +170,8 @@ def test_ingest_rejects_whole_batch_on_dimension_mismatch(
     )
 
     assert response.status_code == 422
-    os_client.indices.refresh(index="eng")
-    after = os_client.count(index="eng")["count"]
+    os_client.indices.refresh(index=eng_index)
+    after = os_client.count(index=eng_index)["count"]
     assert after == before  # no partial write
 
 

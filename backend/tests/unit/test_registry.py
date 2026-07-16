@@ -40,6 +40,15 @@ def test_latin_uses_mean_skip_first_pooling() -> None:
     assert get_language_pack("lat").embedding_spec.pooling == "mean_skip_first"
 
 
+def test_latin_tokenizer_comes_from_base_model() -> None:
+    # itserr/LaBERTa-W_VULG-S_VL-Synt's own repo ships only weights/config wrapped
+    # in a custom container — its config.json's embedding_config._name_or_path
+    # points at the base model both the tokenizer and architecture come from.
+    assert get_language_pack("lat").embedding_spec.base_model_id == "bowphs/LaBerta"
+
+
 @pytest.mark.parametrize("iso_code", ["grc", "eng", "ita", "arb"])
 def test_other_languages_use_sentence_transformers_pooling(iso_code: str) -> None:
-    assert get_language_pack(iso_code).embedding_spec.pooling == "sentence_transformers"
+    spec = get_language_pack(iso_code).embedding_spec
+    assert spec.pooling == "sentence_transformers"
+    assert spec.base_model_id is None
