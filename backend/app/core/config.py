@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     postgres_port: int
     jwt_secret_key: str
 
+    opensearch_host: str
+    opensearch_port: int
+    opensearch_index_prefix: str = ""
+
     @property
     def database_url(self) -> str:
         return (

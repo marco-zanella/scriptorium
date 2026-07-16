@@ -17,6 +17,23 @@ services:
       timeout: 5s
       retries: 5
 
+  opensearch:
+    build: ./opensearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms2g -Xmx2g
+    ports:
+      - "${OPENSEARCH_PORT}:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   api:
     build: ./backend
     restart: unless-stopped
@@ -24,14 +41,19 @@ services:
       - .env
     environment:
       # Overrides .env's venv-oriented values — this container reaches
-      # postgres over the compose network, not the host-mapped port.
+      # postgres/opensearch over the compose network, not the host-mapped ports.
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
+      OPENSEARCH_HOST: opensearch
+      OPENSEARCH_PORT: 9200
     ports:
       - "${API_PORT}:8000"
     depends_on:
       postgres:
         condition: service_healthy
+      opensearch:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  opensearch_data:

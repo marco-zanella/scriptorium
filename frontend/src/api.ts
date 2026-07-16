@@ -123,3 +123,119 @@ export function assignRole(userId: number, role: string): Promise<UserOut> {
 export function revokeRole(userId: number, role: string): Promise<UserOut> {
   return request<UserOut>(`/users/${userId}/roles/${role}`, { method: 'DELETE' })
 }
+
+export interface LanguageOut {
+  iso_code: string
+  display_name: string
+  directionality: 'ltr' | 'rtl'
+}
+
+export function listLanguages(): Promise<LanguageOut[]> {
+  return request<LanguageOut[]>('/search/languages')
+}
+
+export interface SearchVariant {
+  source: string
+  content: string
+}
+
+export interface SearchHit {
+  book: string | null
+  chapter: string | null
+  verse: string | null
+  source: string | null
+  content: string | null
+  variant: SearchVariant[]
+  score: number
+}
+
+export interface FacetBucket {
+  key: string
+  count: number
+}
+
+export interface SearchFacets {
+  book: FacetBucket[]
+  source: FacetBucket[]
+}
+
+export interface ScoreStats {
+  count: number
+  min: number
+  max: number
+  avg: number
+  std_deviation: number
+  percentiles: Record<string, number>
+}
+
+export interface SearchResponse {
+  took_ms: number
+  count: number
+  page: number
+  page_size: number
+  results: SearchHit[]
+  facets: SearchFacets
+  score_stats: ScoreStats | null
+}
+
+export interface SearchOptions {
+  weights?: Record<string, number>
+  variant_weights?: Record<string, number>
+  books?: string[]
+  sources?: string[]
+  page?: number
+  page_size?: number
+  include_score_stats?: boolean
+}
+
+export function search(
+  language: string,
+  query: string,
+  options: SearchOptions = {},
+): Promise<SearchResponse> {
+  return request<SearchResponse>(`/search/${language}`, {
+    method: 'POST',
+    body: JSON.stringify({ query, ...options }),
+  })
+}
+
+export interface SearchConfigurationWeights {
+  weights: Record<string, number>
+  variant_weights: Record<string, number>
+}
+
+export interface SearchConfigurationOut {
+  id: number | null
+  name: string
+  weights: SearchConfigurationWeights
+  is_preset: boolean
+}
+
+export function listSearchConfigurations(): Promise<SearchConfigurationOut[]> {
+  return request<SearchConfigurationOut[]>('/search/configurations')
+}
+
+export function createSearchConfiguration(
+  name: string,
+  weights: SearchConfigurationWeights,
+): Promise<SearchConfigurationOut> {
+  return request<SearchConfigurationOut>('/search/configurations', {
+    method: 'POST',
+    body: JSON.stringify({ name, weights }),
+  })
+}
+
+export function updateSearchConfiguration(
+  id: number,
+  name: string,
+  weights: SearchConfigurationWeights,
+): Promise<SearchConfigurationOut> {
+  return request<SearchConfigurationOut>(`/search/configurations/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name, weights }),
+  })
+}
+
+export function deleteSearchConfiguration(id: number): Promise<void> {
+  return request<void>(`/search/configurations/${id}`, { method: 'DELETE' })
+}
