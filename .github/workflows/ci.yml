@@ -34,6 +34,11 @@ jobs:
       POSTGRES_HOST: localhost
       POSTGRES_PORT: 5432
       JWT_SECRET_KEY: test-only-secret-not-used-in-production
+      OPENSEARCH_HOST: localhost
+      OPENSEARCH_PORT: 9200
+      # Isolated from any real index namespace — same reasoning as scriptorium_test
+      # for Postgres above (tests create/delete indices, never touch dev data).
+      OPENSEARCH_INDEX_PREFIX: ci_test_
 
     steps:
       - uses: actions/checkout@v4
@@ -44,4 +49,13 @@ jobs:
       - run: ruff check backend/
       - run: ruff format --check backend/
       - run: alembic -c backend/alembic.ini upgrade head
+      - name: Start OpenSearch
+        # GitHub Actions' native `services:` containers can only reference a
+        # pre-built image, not a build context — analysis-icu requires
+        # extending the base image (see opensearch/Dockerfile), so this reuses
+        # the same docker-compose.yml/Dockerfile as local dev instead of
+        # duplicating the setup as a second image definition.
+        run: |
+          docker compose up -d --build opensearch
+          timeout 120 sh -c 'until curl -sf http://localhost:9200/_cluster/health >/dev/null; do sleep 3; done'
       - run: pytest backend/tests

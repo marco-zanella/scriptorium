@@ -203,13 +203,9 @@ export function AdminPage() {
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel render={<Button variant="outline">Cancel</Button>} />
-                        <AlertDialogAction
-                          render={
-                            <Button variant="destructive" onClick={() => handleDelete(rowUser)}>
-                              Delete
-                            </Button>
-                          }
-                        />
+                        <AlertDialogAction variant="destructive" onClick={() => handleDelete(rowUser)}>
+                          Delete
+                        </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>

@@ -6,6 +6,7 @@ import { ThemeToggle } from '@/components/theme-toggle'
 export function Layout() {
   const { user, logout } = useAuth()
   const canManageUsers = user?.is_superuser || (user?.roles.includes('manage_users') ?? false)
+  const canSearch = user?.is_superuser || (user?.roles.includes('use_search_engine') ?? false)
 
   return (
     <div className="min-h-screen bg-background">
@@ -14,6 +15,11 @@ export function Layout() {
           <Link to="/" className="font-heading text-lg font-medium">
             Scriptorium
           </Link>
+          {canSearch && (
+            <Link to="/search" className="text-sm text-muted-foreground hover:text-foreground">
+              Search
+            </Link>
+          )}
           {canManageUsers && (
             <Link to="/admin" className="text-sm text-muted-foreground hover:text-foreground">
               Users
