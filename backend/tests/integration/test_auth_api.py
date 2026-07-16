@@ -21,8 +21,16 @@ def _create_user(db_session: Session, **kwargs):
     return create_or_reset_admin(db_session, **defaults)
 
 
-def _login(client: TestClient):
-    return client.post("/api/auth/login", json={"username": "alice", "password": "s3cret-pw"})
+def _login(client: TestClient, **kwargs):
+    body = {"username": "alice", "password": "s3cret-pw", **kwargs}
+    return client.post("/api/auth/login", json=body)
+
+
+def _refresh_cookie_expires(client: TestClient) -> float | None:
+    for cookie in client.cookies.jar:
+        if cookie.name == "refresh_token":
+            return cookie.expires
+    raise AssertionError("refresh_token cookie not found in jar")
 
 
 def test_login_succeeds_with_correct_credentials(client: TestClient, db_session: Session) -> None:
@@ -95,6 +103,35 @@ def test_refresh_rotates_the_token_and_invalidates_the_old_one(
     stale_client.cookies.set("refresh_token", old_refresh_token)
     reuse_old_token = stale_client.post("/api/auth/refresh")
     assert reuse_old_token.status_code == 401
+
+
+def test_remember_me_false_sets_a_session_only_refresh_cookie(
+    client: TestClient, db_session: Session
+) -> None:
+    _create_user(db_session)
+    _login(client, remember_me=False)
+
+    assert _refresh_cookie_expires(client) is None
+
+
+def test_remember_me_true_sets_a_persistent_refresh_cookie(
+    client: TestClient, db_session: Session
+) -> None:
+    _create_user(db_session)
+    _login(client, remember_me=True)
+
+    assert _refresh_cookie_expires(client) is not None
+
+
+def test_refresh_preserves_the_remember_choice_across_rotation(
+    client: TestClient, db_session: Session
+) -> None:
+    _create_user(db_session)
+    _login(client, remember_me=True)
+
+    client.post("/api/auth/refresh")
+
+    assert _refresh_cookie_expires(client) is not None
 
 
 def test_logout_invalidates_the_refresh_token(client: TestClient, db_session: Session) -> None:

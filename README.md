@@ -22,9 +22,18 @@ docker compose up -d postgres
 # resolve relative to it
 alembic -c backend/alembic.ini upgrade head
 uvicorn app.main:app --reload
-pytest backend/tests
 ruff check backend/      # lint
 ruff format backend/     # format
+
+# tests run against a SEPARATE database (scriptorium_test), never the dev one —
+# the test suite deletes rows as part of cleanup, so sharing a DB with your
+# interactive session means tests can wipe your real accounts/data.
+# scriptorium_test is created automatically by postgres-init-test-db.sql on a
+# fresh `docker compose up`; if you already had a postgres_data volume before
+# this existed, create it once yourself:
+#   docker compose exec postgres psql -U scriptorium -d postgres -c "CREATE DATABASE scriptorium_test;"
+POSTGRES_DB=scriptorium_test alembic -c backend/alembic.ini upgrade head
+POSTGRES_DB=scriptorium_test pytest backend/tests
 ```
 
 `GET /health` should return `{"status": "ok"}` once the app is running.
@@ -37,3 +46,18 @@ credentials rather than creating a second one:
 ```bash
 python backend/cli/create_admin.py --username admin --email admin@example.com --password <password>
 ```
+
+## Frontend
+
+React + TypeScript + Vite + Tailwind CSS, in `frontend/`.
+
+```bash
+cd frontend
+npm install
+npm run dev      # dev server on :5173, proxies /api to the backend on :8000
+npm run test     # vitest
+npm run lint     # oxlint
+npm run build    # type-check + production build
+```
+
+Run the backend alongside this for `/api` calls to work in dev.
