@@ -9,5 +9,6 @@ def test_database_url_is_built_from_components() -> None:
         postgres_db="d",
         postgres_host="h",
         postgres_port=1234,
+        jwt_secret_key="test-secret",
     )
     assert settings.database_url == "postgresql+psycopg2://u:p@h:1234/d"

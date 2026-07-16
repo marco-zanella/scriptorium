@@ -10,6 +10,8 @@ dependencies = [
     "psycopg2-binary>=2.9",
     "pydantic-settings>=2.4",
     "alembic>=1.13",
+    "pwdlib[argon2]>=0.2",
+    "pyjwt>=2.9",
 ]
 
 [project.optional-dependencies]
@@ -36,3 +38,4 @@ extend-exclude = ["app/db/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]  # Depends(...) as a default arg is FastAPI's required idiom, not a bug
