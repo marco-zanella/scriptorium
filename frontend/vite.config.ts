@@ -4,7 +4,10 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  // Production is served by nginx under /scriptorium/ (shared domain, other
+  // projects live at sibling paths); local dev stays at domain root.
+  base: mode === 'production' ? '/scriptorium/' : '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -21,4 +24,4 @@ export default defineConfig({
     setupFiles: ['./src/setupTests.ts'],
     globals: true,
   },
-})
+}))

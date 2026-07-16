@@ -9,6 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
@@ -31,7 +39,7 @@ jobs:
           chmod 600 ~/.ssh/config
       - name: Sync repo to server
         run: >-
-          rsync -az --delete --exclude '.git' --exclude '.env'
+          rsync -az --delete --exclude '.git' --exclude '.env' --exclude 'frontend/node_modules'
           -e "ssh -F $HOME/.ssh/config" ./ target:${{ vars.DEPLOY_PATH }}/
       - name: Build and start containers
         run: ssh -F ~/.ssh/config target "cd ${{ vars.DEPLOY_PATH }} && docker compose up -d --build"
