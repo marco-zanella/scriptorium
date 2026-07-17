@@ -6,6 +6,9 @@ import {
   listLanguages,
   listSearchConfigurations,
   search,
+  type Combiner,
+  type CombinationTechnique,
+  type CombinerTechnique,
   type LanguageOut,
   type ScoreStats,
   type SearchConfigurationOut,
@@ -34,6 +37,19 @@ const CATEGORY_FIELDS = [
 ] as const
 
 const EMPTY_WEIGHTS = { text: 0, shingle: 0, trigram: 0, language: 0, semantic: 0 }
+const DEFAULT_BUCKET_WEIGHTS = { lexical: 0.5, semantic: 0.5 }
+const DEFAULT_COMBINER: Combiner = { technique: 'rrf', rank_constant: 60 }
+const COMBINER_TECHNIQUES: { value: CombinerTechnique; label: string }[] = [
+  { value: 'rrf', label: 'Reciprocal Rank Fusion' },
+  { value: 'min_max', label: 'Min-Max normalization' },
+  { value: 'l2', label: 'L2 normalization' },
+  { value: 'z_score', label: 'Z-Score normalization' },
+]
+const COMBINATION_TECHNIQUES: { value: CombinationTechnique; label: string }[] = [
+  { value: 'arithmetic_mean', label: 'Arithmetic mean' },
+  { value: 'geometric_mean', label: 'Geometric mean' },
+  { value: 'harmonic_mean', label: 'Harmonic mean' },
+]
 
 function configKey(config: SearchConfigurationOut): string {
   return config.is_preset ? `preset:${config.name}` : `saved:${config.id}`
@@ -48,6 +64,8 @@ export function SearchPage() {
   const [configId, setConfigId] = useState('')
   const [weights, setWeights] = useState<Record<string, number>>(EMPTY_WEIGHTS)
   const [variantWeights, setVariantWeights] = useState<Record<string, number>>(EMPTY_WEIGHTS)
+  const [bucketWeights, setBucketWeights] = useState<Record<string, number>>(DEFAULT_BUCKET_WEIGHTS)
+  const [combiner, setCombiner] = useState<Combiner>(DEFAULT_COMBINER)
   const [showConfiguration, setShowConfiguration] = useState(false)
 
   const [selectedBooks, setSelectedBooks] = useState<string[]>([])
@@ -80,6 +98,8 @@ export function SearchPage() {
         setConfigId(configKey(preferred))
         setWeights(preferred.weights.weights)
         setVariantWeights(preferred.weights.variant_weights)
+        setBucketWeights(preferred.weights.bucket_weights ?? DEFAULT_BUCKET_WEIGHTS)
+        setCombiner(preferred.weights.combiner ?? DEFAULT_COMBINER)
       }
     })
   }, [])
@@ -90,6 +110,8 @@ export function SearchPage() {
     if (found) {
       setWeights(found.weights.weights)
       setVariantWeights(found.weights.variant_weights)
+      setBucketWeights(found.weights.bucket_weights ?? DEFAULT_BUCKET_WEIGHTS)
+      setCombiner(found.weights.combiner ?? DEFAULT_COMBINER)
     }
   }
 
@@ -104,6 +126,8 @@ export function SearchPage() {
       const response = await search(language, query, {
         weights,
         variant_weights: variantWeights,
+        bucket_weights: bucketWeights,
+        combiner,
         books: (overrides.books ?? selectedBooks).length ? overrides.books ?? selectedBooks : undefined,
         sources: (overrides.sources ?? selectedSources).length
           ? overrides.sources ?? selectedSources
@@ -258,6 +282,104 @@ export function SearchPage() {
                 </div>
               </div>
             ))}
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div className="space-y-2">
+              <p className="font-medium text-foreground">Bucket balance</p>
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                <span>Lexical</span>
+                <span>Semantic</span>
+                <Input
+                  type="number"
+                  step={0.01}
+                  min={0}
+                  aria-label="Lexical bucket weight"
+                  value={bucketWeights.lexical ?? 0}
+                  onChange={(e) =>
+                    setBucketWeights({ ...bucketWeights, lexical: Number(e.target.value) })
+                  }
+                />
+                <Input
+                  type="number"
+                  step={0.01}
+                  min={0}
+                  aria-label="Semantic bucket weight"
+                  value={bucketWeights.semantic ?? 0}
+                  onChange={(e) =>
+                    setBucketWeights({ ...bucketWeights, semantic: Number(e.target.value) })
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="font-medium text-foreground">Combiner</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={combiner.technique}
+                  onValueChange={(value) =>
+                    value && setCombiner({ ...combiner, technique: value as CombinerTechnique })
+                  }
+                >
+                  <SelectTrigger aria-label="Combiner technique" className="w-56">
+                    <SelectValue>
+                      {COMBINER_TECHNIQUES.find((t) => t.value === combiner.technique)?.label}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COMBINER_TECHNIQUES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {combiner.technique === 'rrf' ? (
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="rank-constant" className="text-sm text-muted-foreground">
+                      Rank constant
+                    </Label>
+                    <Input
+                      id="rank-constant"
+                      type="number"
+                      min={1}
+                      className="w-24"
+                      value={combiner.rank_constant ?? 60}
+                      onChange={(e) =>
+                        setCombiner({ ...combiner, rank_constant: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                ) : (
+                  <Select
+                    value={combiner.combination ?? 'arithmetic_mean'}
+                    onValueChange={(value) =>
+                      value &&
+                      setCombiner({ ...combiner, combination: value as CombinationTechnique })
+                    }
+                  >
+                    <SelectTrigger aria-label="Combination technique" className="w-48">
+                      <SelectValue>
+                        {
+                          COMBINATION_TECHNIQUES.find(
+                            (t) => t.value === (combiner.combination ?? 'arithmetic_mean'),
+                          )?.label
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COMBINATION_TECHNIQUES.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>
+                          {t.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">

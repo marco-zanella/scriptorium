@@ -6,6 +6,9 @@ import {
   deleteSearchConfiguration,
   listSearchConfigurations,
   updateSearchConfiguration,
+  type Combiner,
+  type CombinationTechnique,
+  type CombinerTechnique,
   type SearchConfigurationOut,
   type SearchConfigurationWeights,
 } from './api'
@@ -39,6 +42,13 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 const CATEGORY_FIELDS = [
@@ -48,6 +58,19 @@ const CATEGORY_FIELDS = [
 ] as const
 
 const EMPTY_WEIGHTS = { text: 0, shingle: 0, trigram: 0, language: 0, semantic: 0 }
+const DEFAULT_BUCKET_WEIGHTS = { lexical: 0.5, semantic: 0.5 }
+const DEFAULT_COMBINER: Combiner = { technique: 'rrf', rank_constant: 60 }
+const COMBINER_TECHNIQUES: { value: CombinerTechnique; label: string }[] = [
+  { value: 'rrf', label: 'Reciprocal Rank Fusion' },
+  { value: 'min_max', label: 'Min-Max normalization' },
+  { value: 'l2', label: 'L2 normalization' },
+  { value: 'z_score', label: 'Z-Score normalization' },
+]
+const COMBINATION_TECHNIQUES: { value: CombinationTechnique; label: string }[] = [
+  { value: 'arithmetic_mean', label: 'Arithmetic mean' },
+  { value: 'geometric_mean', label: 'Geometric mean' },
+  { value: 'harmonic_mean', label: 'Harmonic mean' },
+]
 
 export function SearchConfigurationsPage() {
   const [configurations, setConfigurations] = useState<SearchConfigurationOut[]>([])
@@ -227,13 +250,22 @@ function ConfigurationForm({
   const [variantWeights, setVariantWeights] = useState<Record<string, number>>(
     initial?.weights.variant_weights ?? EMPTY_WEIGHTS,
   )
+  const [bucketWeights, setBucketWeights] = useState<Record<string, number>>(
+    initial?.weights.bucket_weights ?? DEFAULT_BUCKET_WEIGHTS,
+  )
+  const [combiner, setCombiner] = useState<Combiner>(initial?.weights.combiner ?? DEFAULT_COMBINER)
   const [error, setError] = useState<string | null>(null)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     setError(null)
     try {
-      await onSubmit(name, { weights, variant_weights: variantWeights })
+      await onSubmit(name, {
+        weights,
+        variant_weights: variantWeights,
+        bucket_weights: bucketWeights,
+        combiner,
+      })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong')
     }
@@ -285,6 +317,99 @@ function ConfigurationForm({
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-foreground">Bucket balance</p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-muted-foreground">
+            <span>Lexical</span>
+            <span>Semantic</span>
+            <Input
+              type="number"
+              step={0.01}
+              min={0}
+              aria-label="Lexical bucket weight"
+              value={bucketWeights.lexical ?? 0}
+              onChange={(e) => setBucketWeights({ ...bucketWeights, lexical: Number(e.target.value) })}
+            />
+            <Input
+              type="number"
+              step={0.01}
+              min={0}
+              aria-label="Semantic bucket weight"
+              value={bucketWeights.semantic ?? 0}
+              onChange={(e) =>
+                setBucketWeights({ ...bucketWeights, semantic: Number(e.target.value) })
+              }
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-foreground">Combiner</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={combiner.technique}
+              onValueChange={(value) =>
+                value && setCombiner({ ...combiner, technique: value as CombinerTechnique })
+              }
+            >
+              <SelectTrigger aria-label="Combiner technique" className="w-56">
+                <SelectValue>
+                  {COMBINER_TECHNIQUES.find((t) => t.value === combiner.technique)?.label}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {COMBINER_TECHNIQUES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {combiner.technique === 'rrf' ? (
+              <div className="flex items-center gap-2">
+                <Label htmlFor="form-rank-constant" className="text-sm text-muted-foreground">
+                  Rank constant
+                </Label>
+                <Input
+                  id="form-rank-constant"
+                  type="number"
+                  min={1}
+                  className="w-24"
+                  value={combiner.rank_constant ?? 60}
+                  onChange={(e) => setCombiner({ ...combiner, rank_constant: Number(e.target.value) })}
+                />
+              </div>
+            ) : (
+              <Select
+                value={combiner.combination ?? 'arithmetic_mean'}
+                onValueChange={(value) =>
+                  value && setCombiner({ ...combiner, combination: value as CombinationTechnique })
+                }
+              >
+                <SelectTrigger aria-label="Combination technique" className="w-48">
+                  <SelectValue>
+                    {
+                      COMBINATION_TECHNIQUES.find(
+                        (t) => t.value === (combiner.combination ?? 'arithmetic_mean'),
+                      )?.label
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {COMBINATION_TECHNIQUES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+        </div>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}

@@ -178,9 +178,24 @@ export interface SearchResponse {
   score_stats: ScoreStats | null
 }
 
+export type CombinerTechnique = 'rrf' | 'min_max' | 'l2' | 'z_score'
+export type CombinationTechnique = 'arithmetic_mean' | 'geometric_mean' | 'harmonic_mean'
+
+export interface Combiner {
+  technique: CombinerTechnique
+  // only used when technique is not "rrf"
+  combination?: CombinationTechnique
+  // only used when technique is "rrf"
+  rank_constant?: number
+}
+
 export interface SearchOptions {
   weights?: Record<string, number>
   variant_weights?: Record<string, number>
+  // Balances the lexical vs. semantic bucket overall — distinct from weights/
+  // variant_weights, which only affect ranking *within* a bucket.
+  bucket_weights?: Record<string, number>
+  combiner?: Combiner
   books?: string[]
   sources?: string[]
   page?: number
@@ -202,6 +217,10 @@ export function search(
 export interface SearchConfigurationWeights {
   weights: Record<string, number>
   variant_weights: Record<string, number>
+  // Optional — absent on configurations saved before bucket balance/combiner
+  // selection existed; callers fall back to defaults in that case.
+  bucket_weights?: Record<string, number>
+  combiner?: Combiner
 }
 
 export interface SearchConfigurationOut {

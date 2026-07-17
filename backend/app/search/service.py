@@ -1,10 +1,20 @@
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from opensearchpy import OpenSearch
 
+from app.embeddings.model import Encoder, encode_query, load_model
 from app.registry import LanguagePack
+from app.registry.language_pack import EmbeddingSpec
 from app.search.index_manager import index_name
-from app.search.query import build_aggregations, build_query
+from app.search.query import (
+    DEFAULT_BUCKET_WEIGHTS,
+    DEFAULT_COMBINER,
+    DEFAULT_VARIANT_WEIGHTS,
+    DEFAULT_WEIGHTS,
+    build_aggregations,
+    build_hybrid_body,
+)
 
 
 @dataclass
@@ -56,6 +66,24 @@ def _score_stats(aggregations: dict) -> ScoreStats | None:
     )
 
 
+@lru_cache
+def _get_encoder(embedding_spec: EmbeddingSpec) -> Encoder:
+    return load_model(embedding_spec)
+
+
+def _query_vector(
+    language_pack: LanguagePack, query: str, weights: dict, variant_weights: dict
+) -> list[float] | None:
+    """Computes the query embedding only when the semantic bucket is actually
+    requested and the language has a model — encoding is a real CPU cost, not
+    something to pay for a lexical-only search."""
+    wants_semantic = weights.get("semantic", 0) > 0 or variant_weights.get("semantic", 0) > 0
+    if not wants_semantic or language_pack.embedding_spec is None:
+        return None
+    encoder = _get_encoder(language_pack.embedding_spec)
+    return encode_query(encoder, language_pack.embedding_spec, query)
+
+
 def search(
     client: OpenSearch,
     language_pack: LanguagePack,
@@ -63,13 +91,30 @@ def search(
     *,
     weights: dict[str, float] | None = None,
     variant_weights: dict[str, float] | None = None,
+    bucket_weights: dict[str, float] | None = None,
+    combiner: dict | None = None,
     books: list[str] | None = None,
     sources: list[str] | None = None,
     page: int = 1,
     page_size: int = 50,
     include_score_stats: bool = False,
 ) -> SearchResult:
-    body = build_query(query, weights, variant_weights, books, sources)
+    weights = weights if weights is not None else DEFAULT_WEIGHTS
+    variant_weights = variant_weights if variant_weights is not None else DEFAULT_VARIANT_WEIGHTS
+    bucket_weights = bucket_weights if bucket_weights is not None else DEFAULT_BUCKET_WEIGHTS
+    combiner = combiner if combiner is not None else DEFAULT_COMBINER
+
+    query_vector = _query_vector(language_pack, query, weights, variant_weights)
+    body = build_hybrid_body(
+        query,
+        query_vector,
+        weights,
+        variant_weights,
+        bucket_weights,
+        combiner,
+        books,
+        sources,
+    )
     body["aggs"] = build_aggregations(include_score_stats)
     response = client.search(
         index=index_name(language_pack),

@@ -19,6 +19,8 @@ vi.mock('./api', async () => {
 const api = await import('./api')
 
 const EMPTY_WEIGHTS = { text: 0, shingle: 0, trigram: 0, language: 0, semantic: 0 }
+const DEFAULT_BUCKET_WEIGHTS = { lexical: 0.5, semantic: 0.5 }
+const DEFAULT_COMBINER = { technique: 'rrf', rank_constant: 60 }
 
 const HYBRID: SearchConfigurationOut = {
   id: null,
@@ -99,6 +101,8 @@ describe('SearchConfigurationsPage', () => {
       expect(api.createSearchConfiguration).toHaveBeenCalledWith('new config', {
         weights: EMPTY_WEIGHTS,
         variant_weights: EMPTY_WEIGHTS,
+        bucket_weights: DEFAULT_BUCKET_WEIGHTS,
+        combiner: DEFAULT_COMBINER,
       })
     })
   })
@@ -125,6 +129,8 @@ describe('SearchConfigurationsPage', () => {
       expect(api.updateSearchConfiguration).toHaveBeenCalledWith(7, 'renamed config', {
         weights: EMPTY_WEIGHTS,
         variant_weights: EMPTY_WEIGHTS,
+        bucket_weights: DEFAULT_BUCKET_WEIGHTS,
+        combiner: DEFAULT_COMBINER,
       })
     })
   })
