@@ -49,6 +49,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Slider } from '@/components/ui/slider'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 const CATEGORY_FIELDS = [
@@ -59,13 +60,17 @@ const CATEGORY_FIELDS = [
 
 const EMPTY_WEIGHTS = { text: 0, shingle: 0, trigram: 0, language: 0, semantic: 0 }
 const DEFAULT_BUCKET_WEIGHTS = { lexical: 0.5, semantic: 0.5 }
-const DEFAULT_COMBINER: Combiner = { technique: 'rrf', rank_constant: 60 }
+const DEFAULT_COMBINER: Combiner = { technique: 'z_score', combination: 'arithmetic_mean' }
 const COMBINER_TECHNIQUES: { value: CombinerTechnique; label: string }[] = [
-  { value: 'rrf', label: 'Reciprocal Rank Fusion' },
+  { value: 'z_score', label: 'Z-Score normalization' },
   { value: 'min_max', label: 'Min-Max normalization' },
   { value: 'l2', label: 'L2 normalization' },
-  { value: 'z_score', label: 'Z-Score normalization' },
+  { value: 'rrf', label: 'Reciprocal Rank Fusion' },
 ]
+// arithmetic_mean is the only combination z_score's negative values can be
+// combined via — geometric/harmonic mean can't handle them — so when z_score is
+// selected, no combination picker is shown at all (see below), not just a
+// filtered one.
 const COMBINATION_TECHNIQUES: { value: CombinationTechnique; label: string }[] = [
   { value: 'arithmetic_mean', label: 'Arithmetic mean' },
   { value: 'geometric_mean', label: 'Geometric mean' },
@@ -149,7 +154,7 @@ export function SearchConfigurationsPage() {
           </Button>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger render={<Button>New configuration</Button>} />
-            <DialogContent className="sm:max-w-3xl">
+            <DialogContent className="sm:max-w-5xl">
               <ConfigurationForm
                 onSubmit={async (name, weights) => {
                   await createSearchConfiguration(name, weights)
@@ -189,7 +194,7 @@ export function SearchConfigurationsPage() {
                         onOpenChange={(open) => setEditing(open ? config : null)}
                       >
                         <DialogTrigger render={<Button variant="outline" size="sm">Edit</Button>} />
-                        <DialogContent className="sm:max-w-3xl">
+                        <DialogContent className="sm:max-w-5xl">
                           <ConfigurationForm
                             initial={config}
                             onSubmit={async (name, weights) => {
@@ -281,11 +286,11 @@ function ConfigurationForm({
         <Input id="config-name" value={name} onChange={(e) => setName(e.target.value)} required />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-4">
         {CATEGORY_FIELDS.map(({ category, fields }) => (
           <div key={category} className="space-y-2">
             <p className="text-sm font-medium text-foreground">{category}</p>
-            <div className="grid grid-cols-3 items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+            <div className="grid grid-cols-[auto_1fr_1fr] items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
               <span />
               <span>Main</span>
               <span>Variant</span>
@@ -317,43 +322,45 @@ function ConfigurationForm({
             </div>
           </div>
         ))}
-      </div>
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-foreground">Bucket balance</p>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-muted-foreground">
-            <span>Lexical</span>
-            <span>Semantic</span>
-            <Input
-              type="number"
-              step={0.01}
-              min={0}
-              aria-label="Lexical bucket weight"
-              value={bucketWeights.lexical ?? 0}
-              onChange={(e) => setBucketWeights({ ...bucketWeights, lexical: Number(e.target.value) })}
-            />
-            <Input
-              type="number"
-              step={0.01}
-              min={0}
-              aria-label="Semantic bucket weight"
-              value={bucketWeights.semantic ?? 0}
-              onChange={(e) =>
-                setBucketWeights({ ...bucketWeights, semantic: Number(e.target.value) })
-              }
-            />
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-foreground">Search emphasis</p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Wording</span>
+              <Slider
+                aria-label="Search emphasis"
+                min={0}
+                max={1}
+                step={0.01}
+                value={[bucketWeights.semantic ?? 0.5]}
+                onValueChange={(value) => {
+                  const semantic = Array.isArray(value) ? value[0] : value
+                  setBucketWeights({ lexical: 1 - semantic, semantic })
+                }}
+              />
+              <span className="text-xs text-muted-foreground">Meaning</span>
+            </div>
+            <p className="text-center text-xs text-muted-foreground">
+              {Math.round((1 - (bucketWeights.semantic ?? 0.5)) * 100)}% wording ·{' '}
+              {Math.round((bucketWeights.semantic ?? 0.5) * 100)}% meaning
+            </p>
           </div>
-        </div>
 
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-foreground">Combiner</p>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-foreground">Combiner</p>
+            <div className="flex flex-wrap items-center gap-2">
             <Select
               value={combiner.technique}
-              onValueChange={(value) =>
-                value && setCombiner({ ...combiner, technique: value as CombinerTechnique })
-              }
+              onValueChange={(value) => {
+                if (!value) return
+                const technique = value as CombinerTechnique
+                setCombiner(
+                  technique === 'z_score'
+                    ? { technique, combination: 'arithmetic_mean' }
+                    : { ...combiner, technique },
+                )
+              }}
             >
               <SelectTrigger aria-label="Combiner technique" className="w-56">
                 <SelectValue>
@@ -369,7 +376,7 @@ function ConfigurationForm({
               </SelectContent>
             </Select>
 
-            {combiner.technique === 'rrf' ? (
+            {combiner.technique === 'rrf' && (
               <div className="flex items-center gap-2">
                 <Label htmlFor="form-rank-constant" className="text-sm text-muted-foreground">
                   Rank constant
@@ -383,7 +390,10 @@ function ConfigurationForm({
                   onChange={(e) => setCombiner({ ...combiner, rank_constant: Number(e.target.value) })}
                 />
               </div>
-            ) : (
+            )}
+
+            {/* z_score only combines via arithmetic_mean — no choice to make, so no picker */}
+            {combiner.technique !== 'rrf' && combiner.technique !== 'z_score' && (
               <Select
                 value={combiner.combination ?? 'arithmetic_mean'}
                 onValueChange={(value) =>
@@ -409,6 +419,7 @@ function ConfigurationForm({
               </Select>
             )}
           </div>
+        </div>
         </div>
       </div>
 

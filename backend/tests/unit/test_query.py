@@ -1,8 +1,9 @@
 from app.search.query import (
-    build_aggregations,
     build_combiner_pipeline,
+    build_facets_body,
     build_hybrid_body,
     build_lexical_query,
+    build_score_stats_aggregations,
     build_semantic_query,
 )
 
@@ -151,11 +152,22 @@ def test_hybrid_body_two_buckets_wraps_in_hybrid_query_with_pipeline() -> None:
     assert "multi_match" in queries[0]["bool"]["should"][0]
     assert "knn" in queries[1]["bool"]["should"][0]
     processor = body["search_pipeline"]["phase_results_processors"][0]
-    assert processor["score-ranker-processor"]["combination"]["technique"] == "rrf"
-    assert processor["score-ranker-processor"]["combination"]["parameters"]["weights"] == [0.3, 0.7]
+    assert processor["normalization-processor"]["normalization"]["technique"] == "z_score"
+    assert processor["normalization-processor"]["combination"]["technique"] == "arithmetic_mean"
+    assert processor["normalization-processor"]["combination"]["parameters"]["weights"] == [
+        0.3,
+        0.7,
+    ]
 
 
-def test_combiner_pipeline_rrf_default() -> None:
+def test_combiner_pipeline_z_score_arithmetic_mean_is_the_default() -> None:
+    pipeline = build_combiner_pipeline({}, {"lexical": 0.5, "semantic": 0.5})
+    processor = pipeline["phase_results_processors"][0]["normalization-processor"]
+    assert processor["normalization"]["technique"] == "z_score"
+    assert processor["combination"]["technique"] == "arithmetic_mean"
+
+
+def test_combiner_pipeline_rrf_technique() -> None:
     pipeline = build_combiner_pipeline({"technique": "rrf"}, {"lexical": 0.5, "semantic": 0.5})
     combination = pipeline["phase_results_processors"][0]["score-ranker-processor"]["combination"]
     assert combination["rank_constant"] == 60
@@ -180,16 +192,45 @@ def test_combiner_pipeline_normalization_technique() -> None:
     assert processor["combination"]["parameters"]["weights"] == [0.3, 0.7]
 
 
-def test_aggregations_request_book_and_source_buckets() -> None:
-    aggs = build_aggregations()
-    assert aggs["by_book"]["terms"]["field"] == "book"
-    assert aggs["by_source"]["terms"]["field"] == "source"
-    assert "score_stats" not in aggs
-    assert "score_percentiles" not in aggs
-
-
-def test_aggregations_include_score_stats_when_requested() -> None:
-    aggs = build_aggregations(include_score_stats=True)
+def test_score_stats_aggregations_shape() -> None:
+    aggs = build_score_stats_aggregations()
     assert aggs["score_stats"]["extended_stats"]["script"] == {"source": "_score"}
     assert aggs["score_percentiles"]["percentiles"]["script"] == {"source": "_score"}
     assert aggs["score_percentiles"]["percentiles"]["percents"]
+
+
+def test_facets_body_is_plain_bool_not_hybrid() -> None:
+    """Facets never use the hybrid query type/search_pipeline — they only need
+    document membership, not a combined score, and reusing the hybrid combiner
+    here would risk a different ranking than the main search (see
+    build_facets_body's docstring)."""
+    body = build_facets_body(
+        "agape", query_vector=VECTOR, weights={"text": 0.5, "semantic": 0.5}, variant_weights={}
+    )
+    assert "hybrid" not in body["query"]
+    assert "search_pipeline" not in body
+    should = body["query"]["bool"]["should"]
+    assert "multi_match" in should[0]["bool"]["should"][0]
+    assert "knn" in should[1]["bool"]["should"][0]
+
+
+def test_facets_body_match_none_when_nothing_active() -> None:
+    body = build_facets_body("agape", query_vector=None, weights={"text": 0}, variant_weights={})
+    assert body["query"] == {"match_none": {}}
+
+
+def test_facets_body_by_book_excludes_own_filter_but_keeps_source() -> None:
+    body = build_facets_body(
+        "agape",
+        query_vector=None,
+        weights={"text": 0.5},
+        variant_weights={},
+        books=["genesis"],
+        sources=["rahlfs"],
+    )
+    by_book_filter = body["aggs"]["by_book"]["filter"]["bool"]["filter"]
+    assert by_book_filter == [{"terms": {"source": ["rahlfs"]}}]
+    by_source_filter = body["aggs"]["by_source"]["filter"]["bool"]["filter"]
+    assert by_source_filter == [{"terms": {"book": ["genesis"]}}]
+    assert body["aggs"]["by_book"]["aggs"]["values"]["terms"]["field"] == "book"
+    assert body["aggs"]["by_source"]["aggs"]["values"]["terms"]["field"] == "source"

@@ -137,6 +137,42 @@ def test_pagination(client: TestClient) -> None:
     assert page1["results"][0]["verse"] != page2["results"][0]["verse"]
 
 
+def test_book_facet_stays_multi_selectable_after_filtering(client: TestClient) -> None:
+    """Regression test: selecting one book must not collapse the book facet down
+    to only that book — otherwise there's no way to also select a second book
+    (see build_facets_body's docstring for why this needs its own request)."""
+    os_client = get_client()
+    grc = next(pack for pack in list_language_packs() if pack.iso_code == "grc")
+    for book in ("multiselect-genesis", "multiselect-exodus"):
+        os_client.index(
+            index=index_name(grc),
+            body={
+                "book": book,
+                "chapter": "1",
+                "verse": "1",
+                "source": "gottingen",
+                "content": "multiselect-marker",
+                "variant": [],
+            },
+            refresh=True,
+        )
+
+    response = client.post(
+        "/api/search/grc",
+        json={
+            "query": "multiselect-marker",
+            "weights": {"text": 1},
+            "books": ["multiselect-genesis"],
+        },
+        headers=_bearer(1, ["use_search_engine"]),
+    )
+
+    body = response.json()
+    assert body["results"] and all(r["book"] == "multiselect-genesis" for r in body["results"])
+    book_facet_keys = {b["key"] for b in body["facets"]["book"]}
+    assert {"multiselect-genesis", "multiselect-exodus"} <= book_facet_keys
+
+
 def test_language_field_stems_english_but_agnostic_text_field_does_not(client: TestClient) -> None:
     os_client = get_client()
     eng = get_language_pack("eng")
@@ -298,8 +334,8 @@ def _top_result_kind(body: dict) -> str:
 def test_bucket_weights_shift_which_bucket_dominates_ranking(
     client: TestClient, lexical_vs_semantic_docs: tuple[str, str]
 ) -> None:
-    # Uses the normalization-processor combiner (min_max/arithmetic_mean), not the
-    # rrf default: with only 2 candidate docs, RRF's rank-based scoring barely
+    # Explicitly uses the normalization-processor combiner (min_max/arithmetic_mean),
+    # not rrf: with only 2 candidate docs, RRF's rank-based scoring barely
     # differentiates rank 1 vs. rank 2 within a bucket (1/61 vs. 1/62), so a doc
     # that merely *appears* in both buckets' results can out-rank one that
     # dominates a single bucket — confirmed empirically. Score-based normalization

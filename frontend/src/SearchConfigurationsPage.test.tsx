@@ -20,7 +20,7 @@ const api = await import('./api')
 
 const EMPTY_WEIGHTS = { text: 0, shingle: 0, trigram: 0, language: 0, semantic: 0 }
 const DEFAULT_BUCKET_WEIGHTS = { lexical: 0.5, semantic: 0.5 }
-const DEFAULT_COMBINER = { technique: 'rrf', rank_constant: 60 }
+const DEFAULT_COMBINER = { technique: 'z_score', combination: 'arithmetic_mean' }
 
 const HYBRID: SearchConfigurationOut = {
   id: null,

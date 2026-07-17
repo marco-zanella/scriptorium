@@ -68,13 +68,18 @@ returns that bucket's query directly, skipping the hybrid wrapper and a degenera
 pass over an empty/constant bucket entirely.
 
 **Combiner is user-selectable, not hardcoded**, via OpenSearch's `hybrid` query + an inline ad hoc
-`search_pipeline` (confirmed this doesn't require a pre-registered named pipeline): `rrf`
-(`score-ranker-processor`, rank-based, default) or `min_max`/`l2`/`z_score` normalization
-(`normalization-processor`) crossed with `arithmetic_mean`/`geometric_mean`/`harmonic_mean`
-combination (`z_score` only valid with `arithmetic_mean` — the other two can't combine its
-negative values). Default is `rrf`: the 5 languages' lexical score scales vary a lot (ICU-only
-`grc`/`lat` vs. now-stemmed `eng`/`ita`/`arb`), and RRF sidesteps needing per-language score-scale
-tuning that normalization-based combining would otherwise require.
+`search_pipeline` (confirmed this doesn't require a pre-registered named pipeline): `min_max`/
+`l2`/`z_score` normalization (`normalization-processor`) crossed with `arithmetic_mean`/
+`geometric_mean`/`harmonic_mean` combination (`z_score` only valid with `arithmetic_mean` — the
+other two can't combine its negative values; the UI hides `geometric_mean`/`harmonic_mean` when
+`z_score` is selected, so this invalid combination can't be reached from the search page), or
+`rrf` (`score-ranker-processor`, rank-based). **Default is `z_score` + `arithmetic_mean`** (revised
+from an initial `rrf` default after manual review) — RRF, with only a couple of candidate
+documents, barely differentiates rank 1 vs. rank 2 within a bucket (confirmed empirically), so a
+doc that merely *appears* in both buckets can out-rank one that dominates a single bucket; z-score
+normalization is less sensitive to the outlier-score problem that makes plain min-max normalization
+risky (a single extreme score skews the whole normalized range), while still using real score
+magnitude rather than discarding it the way RRF does.
 
 **`bucket_weights` is a new, separate request field** (`{"lexical": float, "semantic": float}`),
 feeding the combiner's own `weights` parameter. This is necessary, not cosmetic: normalization
@@ -82,8 +87,10 @@ rescales each bucket's score range independently, so a uniform per-bucket score 
 cancelled out by min-max/l2/z-score (shifting a bucket's min and max together leaves
 `(s-min)/(max-min)` unchanged) — confirmed empirically that RRF, with only a couple of candidate
 documents, barely differentiates rank 1 vs. rank 2 within a bucket, so `bucket_weights`' effect is
-most reliably observed under the normalization combiners, not the RRF default. The existing
-`weights`/`variant_weights` keep their current meaning (intra-bucket ranking only).
+most reliably observed under the normalization combiners. The existing `weights`/`variant_weights`
+keep their current meaning (intra-bucket ranking only). In the UI, `bucket_weights` is a single
+slider (left = lexical, right = semantic) rather than two independent inputs, since the two values
+are always meant to sum to 1.
 
 **`torch`/`transformers`/`sentence-transformers`/`sentencepiece` moved from the `cli` extras group
 to the base `dependencies`.** The server now computes single-query embeddings itself (the
@@ -103,4 +110,4 @@ blocker. Adding synonym data later is a config-only change (fill in the `synonym
 `bucket_weights` choices are exposed all the way to the UI (technique/combination picker, bucket
 balance inputs) and persist through `SearchConfiguration`'s existing schemaless JSONB `weights`
 column — no migration was needed; older saved configurations without these keys fall back to
-defaults (`rrf`, 50/50) client-side.
+defaults (`z_score`/`arithmetic_mean`, 50/50) client-side.

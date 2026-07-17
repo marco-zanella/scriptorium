@@ -12,8 +12,9 @@ from app.search.query import (
     DEFAULT_COMBINER,
     DEFAULT_VARIANT_WEIGHTS,
     DEFAULT_WEIGHTS,
-    build_aggregations,
+    build_facets_body,
     build_hybrid_body,
+    build_score_stats_aggregations,
 )
 
 
@@ -47,7 +48,7 @@ class SearchResult:
 def _buckets(aggregations: dict, name: str) -> list[FacetBucket]:
     return [
         FacetBucket(key=bucket["key"], count=bucket["doc_count"])
-        for bucket in aggregations.get(name, {}).get("buckets", [])
+        for bucket in aggregations.get(name, {}).get("values", {}).get("buckets", [])
     ]
 
 
@@ -115,12 +116,25 @@ def search(
         books,
         sources,
     )
-    body["aggs"] = build_aggregations(include_score_stats)
+    if include_score_stats:
+        body["aggs"] = build_score_stats_aggregations()
+    # Otherwise hits.total silently caps at 10000 past that many matches.
+    body["track_total_hits"] = True
     response = client.search(
         index=index_name(language_pack),
         body=body,
         size=page_size,
         from_=(page - 1) * page_size,
+    )
+
+    # A separate, size-0 request for facet counts — deliberately not aggregations
+    # on the response above, since that would need book/source folded into the
+    # main query, which the hybrid combiner can't guarantee still ranks hits
+    # identically to a search without facets (see build_facets_body).
+    facets_response = client.search(
+        index=index_name(language_pack),
+        body=build_facets_body(query, query_vector, weights, variant_weights, books, sources),
+        size=0,
     )
 
     results = [
@@ -136,10 +150,10 @@ def search(
         for hit in response["hits"]["hits"]
     ]
 
-    aggregations = response.get("aggregations", {})
+    facet_aggregations = facets_response.get("aggregations", {})
     facets = {
-        "book": _buckets(aggregations, "by_book"),
-        "source": _buckets(aggregations, "by_source"),
+        "book": _buckets(facet_aggregations, "by_book"),
+        "source": _buckets(facet_aggregations, "by_source"),
     }
 
     return SearchResult(
@@ -149,5 +163,5 @@ def search(
         page_size=page_size,
         results=results,
         facets=facets,
-        score_stats=_score_stats(aggregations),
+        score_stats=_score_stats(response.get("aggregations", {})),
     )
