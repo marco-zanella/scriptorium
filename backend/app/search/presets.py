@@ -8,22 +8,22 @@ app/search/query.py's DEFAULT_WEIGHTS/DEFAULT_VARIANT_WEIGHTS."""
 
 PRESETS: dict[str, dict[str, dict[str, float]]] = {
     "text reuse": {
-        "weights": {"text": 0.0, "shingle": 0.5, "trigram": 0.5, "language": 0.0, "semantic": 0.0},
+        "weights": {"text": 0.6, "shingle": 0.2, "trigram": 0.2, "language": 0.0, "semantic": 0.0},
         "variant_weights": {
-            "text": 0.0,
-            "shingle": 0.5,
-            "trigram": 0.5,
+            "text": 0.3,
+            "shingle": 0.1,
+            "trigram": 0.1,
             "language": 0.0,
             "semantic": 0.0,
         },
     },
     "language": {
-        "weights": {"text": 0.0, "shingle": 0.0, "trigram": 0.0, "language": 1.0, "semantic": 0.0},
+        "weights": {"text": 0.2, "shingle": 0.0, "trigram": 0.1, "language": 0.7, "semantic": 0.0},
         "variant_weights": {
-            "text": 0.0,
+            "text": 0.1,
             "shingle": 0.0,
-            "trigram": 0.0,
-            "language": 0.5,
+            "trigram": 0.05,
+            "language": 0.35,
             "semantic": 0.0,
         },
     },
@@ -38,13 +38,13 @@ PRESETS: dict[str, dict[str, dict[str, float]]] = {
         },
     },
     "hybrid": {
-        "weights": {"text": 0.1, "shingle": 0.1, "trigram": 0.1, "language": 0.5, "semantic": 0.5},
+        "weights": {"text": 0.2, "shingle": 0.0, "trigram": 0.1, "language": 0.7, "semantic": 1.0},
         "variant_weights": {
-            "text": 0.25,
-            "shingle": 0.25,
-            "trigram": 0.25,
-            "language": 0.25,
-            "semantic": 0.25,
+            "text": 0.1,
+            "shingle": 0.0,
+            "trigram": 0.05,
+            "language": 0.35,
+            "semantic": 0.5,
         },
     },
 }

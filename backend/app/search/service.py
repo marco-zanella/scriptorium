@@ -1,10 +1,21 @@
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from opensearchpy import OpenSearch
 
+from app.embeddings.model import Encoder, encode_query, load_model
 from app.registry import LanguagePack
+from app.registry.language_pack import EmbeddingSpec
 from app.search.index_manager import index_name
-from app.search.query import build_aggregations, build_query
+from app.search.query import (
+    DEFAULT_BUCKET_WEIGHTS,
+    DEFAULT_COMBINER,
+    DEFAULT_VARIANT_WEIGHTS,
+    DEFAULT_WEIGHTS,
+    build_facets_body,
+    build_hybrid_body,
+    build_score_stats_aggregations,
+)
 
 
 @dataclass
@@ -37,7 +48,7 @@ class SearchResult:
 def _buckets(aggregations: dict, name: str) -> list[FacetBucket]:
     return [
         FacetBucket(key=bucket["key"], count=bucket["doc_count"])
-        for bucket in aggregations.get(name, {}).get("buckets", [])
+        for bucket in aggregations.get(name, {}).get("values", {}).get("buckets", [])
     ]
 
 
@@ -56,6 +67,54 @@ def _score_stats(aggregations: dict) -> ScoreStats | None:
     )
 
 
+@lru_cache
+def _get_encoder(embedding_spec: EmbeddingSpec) -> Encoder:
+    return load_model(embedding_spec)
+
+
+def _query_vector(
+    language_pack: LanguagePack, query: str, weights: dict, variant_weights: dict
+) -> list[float] | None:
+    """Computes the query embedding only when the semantic bucket is actually
+    requested and the language has a model — encoding is a real CPU cost, not
+    something to pay for a lexical-only search."""
+    wants_semantic = weights.get("semantic", 0) > 0 or variant_weights.get("semantic", 0) > 0
+    if not wants_semantic or language_pack.embedding_spec is None:
+        return None
+    encoder = _get_encoder(language_pack.embedding_spec)
+    return encode_query(encoder, language_pack.embedding_spec, query)
+
+
+def browse_facets(
+    client: OpenSearch,
+    language_pack: LanguagePack,
+    *,
+    books: list[str] | None = None,
+    sources: list[str] | None = None,
+) -> dict[str, list[FacetBucket]]:
+    """Book/source facet options independent of any query — lets the frontend
+    populate the filter sidebar (and let a user pre-select a scope like "Rahlfs
+    Genesis") before a search has ever run, not just as a search response
+    byproduct. Matches every document (`query=None` in build_facets_body), same
+    multi-select cross-filtering as a real search's facets.
+
+    A language with no ingested content yet (no index created) has no facets
+    to offer — not an error, just nothing indexed yet."""
+    if not client.indices.exists(index=index_name(language_pack)):
+        return {"book": [], "source": []}
+
+    response = client.search(
+        index=index_name(language_pack),
+        body=build_facets_body(None, books=books, sources=sources),
+        size=0,
+    )
+    aggregations = response.get("aggregations", {})
+    return {
+        "book": _buckets(aggregations, "by_book"),
+        "source": _buckets(aggregations, "by_source"),
+    }
+
+
 def search(
     client: OpenSearch,
     language_pack: LanguagePack,
@@ -63,19 +122,54 @@ def search(
     *,
     weights: dict[str, float] | None = None,
     variant_weights: dict[str, float] | None = None,
+    bucket_weights: dict[str, float] | None = None,
+    combiner: dict | None = None,
     books: list[str] | None = None,
     sources: list[str] | None = None,
     page: int = 1,
     page_size: int = 50,
     include_score_stats: bool = False,
 ) -> SearchResult:
-    body = build_query(query, weights, variant_weights, books, sources)
-    body["aggs"] = build_aggregations(include_score_stats)
+    weights = weights if weights is not None else DEFAULT_WEIGHTS
+    variant_weights = variant_weights if variant_weights is not None else DEFAULT_VARIANT_WEIGHTS
+    bucket_weights = bucket_weights if bucket_weights is not None else DEFAULT_BUCKET_WEIGHTS
+    combiner = combiner if combiner is not None else DEFAULT_COMBINER
+
+    # A language with no ingested content yet (no index created) has nothing to
+    # search — not an error, just no results.
+    if not client.indices.exists(index=index_name(language_pack)):
+        return SearchResult(took_ms=0, count=0, page=page, page_size=page_size)
+
+    query_vector = _query_vector(language_pack, query, weights, variant_weights)
+    body = build_hybrid_body(
+        query,
+        query_vector,
+        weights,
+        variant_weights,
+        bucket_weights,
+        combiner,
+        books,
+        sources,
+    )
+    if include_score_stats:
+        body["aggs"] = build_score_stats_aggregations()
+    # Otherwise hits.total silently caps at 10000 past that many matches.
+    body["track_total_hits"] = True
     response = client.search(
         index=index_name(language_pack),
         body=body,
         size=page_size,
         from_=(page - 1) * page_size,
+    )
+
+    # A separate, size-0 request for facet counts — deliberately not aggregations
+    # on the response above, since that would need book/source folded into the
+    # main query, which the hybrid combiner can't guarantee still ranks hits
+    # identically to a search without facets (see build_facets_body).
+    facets_response = client.search(
+        index=index_name(language_pack),
+        body=build_facets_body(query, query_vector, weights, variant_weights, books, sources),
+        size=0,
     )
 
     results = [
@@ -91,10 +185,10 @@ def search(
         for hit in response["hits"]["hits"]
     ]
 
-    aggregations = response.get("aggregations", {})
+    facet_aggregations = facets_response.get("aggregations", {})
     facets = {
-        "book": _buckets(aggregations, "by_book"),
-        "source": _buckets(aggregations, "by_source"),
+        "book": _buckets(facet_aggregations, "by_book"),
+        "source": _buckets(facet_aggregations, "by_source"),
     }
 
     return SearchResult(
@@ -104,5 +198,5 @@ def search(
         page_size=page_size,
         results=results,
         facets=facets,
-        score_stats=_score_stats(aggregations),
+        score_stats=_score_stats(response.get("aggregations", {})),
     )

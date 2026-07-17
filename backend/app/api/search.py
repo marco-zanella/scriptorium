@@ -1,10 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.auth.dependencies import Principal, require_role
 from app.registry import UnknownLanguageError, get_language_pack, list_language_packs
 from app.search.client import get_client
-from app.search.query import DEFAULT_VARIANT_WEIGHTS, DEFAULT_WEIGHTS
+from app.search.query import (
+    DEFAULT_BUCKET_WEIGHTS,
+    DEFAULT_COMBINER,
+    DEFAULT_VARIANT_WEIGHTS,
+    DEFAULT_WEIGHTS,
+)
+from app.search.service import browse_facets
 from app.search.service import search as run_search
 
 router = APIRouter(prefix="/api/search", tags=["search"])
@@ -20,6 +26,13 @@ class SearchRequest(BaseModel):
     query: str
     weights: dict[str, float] = DEFAULT_WEIGHTS
     variant_weights: dict[str, float] = DEFAULT_VARIANT_WEIGHTS
+    # bucket_weights balances the lexical vs. semantic bucket overall — distinct from
+    # weights/variant_weights, which only affect ranking *within* a bucket (a uniform
+    # per-bucket score scale gets cancelled out by the combiner's score normalization).
+    bucket_weights: dict[str, float] = DEFAULT_BUCKET_WEIGHTS
+    # combiner selects how the two buckets combine: {"technique": "rrf", "rank_constant": 60}
+    # or {"technique": "min_max" | "l2" | "z_score", "combination": "arithmetic_mean" | ...}.
+    combiner: dict = DEFAULT_COMBINER
     books: list[str] | None = None
     sources: list[str] | None = None
     page: int = 1
@@ -73,6 +86,29 @@ def languages() -> list[LanguageOut]:
     ]
 
 
+@router.get("/{language}/facets", response_model=dict[str, list[FacetBucket]])
+def language_facets(
+    language: str,
+    books: list[str] = Query([]),
+    sources: list[str] = Query([]),
+    principal: Principal = Depends(require_role("use_search_engine")),
+) -> dict[str, list[FacetBucket]]:
+    """Book/source facet options with no query yet — lets the frontend populate
+    the filter sidebar (and a user pre-select a scope) before typing anything."""
+    try:
+        language_pack = get_language_pack(language)
+    except UnknownLanguageError:
+        raise HTTPException(status_code=404, detail=f"Unknown language: {language}") from None
+
+    facets = browse_facets(
+        get_client(), language_pack, books=books or None, sources=sources or None
+    )
+    return {
+        name: [FacetBucket(key=b.key, count=b.count) for b in buckets]
+        for name, buckets in facets.items()
+    }
+
+
 @router.post("/{language}", response_model=SearchResponse)
 def search_language(
     language: str,
@@ -90,6 +126,8 @@ def search_language(
         body.query,
         weights=body.weights,
         variant_weights=body.variant_weights,
+        bucket_weights=body.bucket_weights,
+        combiner=body.combiner,
         books=body.books,
         sources=body.sources,
         page=body.page,

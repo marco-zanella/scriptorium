@@ -12,6 +12,7 @@ vi.mock('./api', async () => {
     listLanguages: vi.fn(),
     listSearchConfigurations: vi.fn(),
     search: vi.fn(),
+    getFacets: vi.fn(),
   }
 })
 
@@ -56,12 +57,42 @@ describe('SearchPage', () => {
     vi.mocked(api.listLanguages).mockReset().mockResolvedValue(LANGUAGES)
     vi.mocked(api.listSearchConfigurations).mockReset().mockResolvedValue(CONFIGURATIONS)
     vi.mocked(api.search).mockReset()
+    vi.mocked(api.getFacets).mockReset().mockResolvedValue(EMPTY_FACETS)
   })
 
   it('loads languages and configurations on mount', async () => {
     renderPage()
     await waitFor(() => expect(api.listLanguages).toHaveBeenCalled())
     await waitFor(() => expect(api.listSearchConfigurations).toHaveBeenCalled())
+  })
+
+  it('loads facet options before any search has run, so a scope can be pre-selected', async () => {
+    vi.mocked(api.getFacets).mockResolvedValue({
+      book: [{ key: 'genesis', count: 10 }],
+      source: [{ key: 'rahlfs', count: 10 }],
+    })
+
+    renderPage()
+    await waitFor(() => expect(api.getFacets).toHaveBeenCalledWith('grc'))
+
+    expect(await screen.findByText('genesis')).toBeInTheDocument()
+    expect(screen.getByText('rahlfs')).toBeInTheDocument()
+    expect(api.search).not.toHaveBeenCalled()
+  })
+
+  it('toggling a facet before a search refreshes facet options, not a search', async () => {
+    vi.mocked(api.getFacets).mockResolvedValue({
+      book: [{ key: 'genesis', count: 10 }],
+      source: [],
+    })
+
+    renderPage()
+    await screen.findByText('genesis')
+
+    await userEvent.click(screen.getByText('genesis'))
+
+    await waitFor(() => expect(api.getFacets).toHaveBeenCalledWith('grc', { books: ['genesis'], sources: [] }))
+    expect(api.search).not.toHaveBeenCalled()
   })
 
   it('runs a search and displays results with variants and facets', async () => {

@@ -25,7 +25,7 @@ def ensure_index(client: OpenSearch, language_pack: LanguagePack) -> str:
             index=name,
             body={
                 "settings": settings_body,
-                "mappings": build_mapping(language_pack.embedding_spec),
+                "mappings": build_mapping(language_pack),
             },
         )
     return name

@@ -27,10 +27,10 @@ def test_hybrid_spreads_across_all_three_categories() -> None:
         assert bucket["semantic"] > 0
 
 
-def test_language_preset_is_pure_language() -> None:
+def test_language_preset_is_language_dominant() -> None:
     language = PRESETS["language"]
-    assert language["weights"]["language"] > 0
-    assert language["weights"]["text"] == 0
+    assert language["weights"]["language"] > language["weights"]["text"]
+    assert language["weights"]["language"] > language["weights"]["trigram"]
     assert language["weights"]["semantic"] == 0
 
 

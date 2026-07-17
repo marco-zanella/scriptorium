@@ -3,9 +3,13 @@ import { Link } from 'react-router-dom'
 import { Fragment, useEffect, useState } from 'react'
 import {
   ApiError,
+  getFacets,
   listLanguages,
   listSearchConfigurations,
   search,
+  type Combiner,
+  type CombinationTechnique,
+  type CombinerTechnique,
   type LanguageOut,
   type ScoreStats,
   type SearchConfigurationOut,
@@ -25,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 const CATEGORY_FIELDS = [
@@ -34,6 +39,23 @@ const CATEGORY_FIELDS = [
 ] as const
 
 const EMPTY_WEIGHTS = { text: 0, shingle: 0, trigram: 0, language: 0, semantic: 0 }
+const DEFAULT_BUCKET_WEIGHTS = { lexical: 0.5, semantic: 0.5 }
+const DEFAULT_COMBINER: Combiner = { technique: 'z_score', combination: 'arithmetic_mean' }
+const COMBINER_TECHNIQUES: { value: CombinerTechnique; label: string }[] = [
+  { value: 'z_score', label: 'Z-Score normalization' },
+  { value: 'min_max', label: 'Min-Max normalization' },
+  { value: 'l2', label: 'L2 normalization' },
+  { value: 'rrf', label: 'Reciprocal Rank Fusion' },
+]
+// arithmetic_mean is the only combination z_score's negative values can be
+// combined via — geometric/harmonic mean can't handle them — so when z_score is
+// selected, no combination picker is shown at all (see below), not just a
+// filtered one.
+const COMBINATION_TECHNIQUES: { value: CombinationTechnique; label: string }[] = [
+  { value: 'arithmetic_mean', label: 'Arithmetic mean' },
+  { value: 'geometric_mean', label: 'Geometric mean' },
+  { value: 'harmonic_mean', label: 'Harmonic mean' },
+]
 
 function configKey(config: SearchConfigurationOut): string {
   return config.is_preset ? `preset:${config.name}` : `saved:${config.id}`
@@ -48,6 +70,8 @@ export function SearchPage() {
   const [configId, setConfigId] = useState('')
   const [weights, setWeights] = useState<Record<string, number>>(EMPTY_WEIGHTS)
   const [variantWeights, setVariantWeights] = useState<Record<string, number>>(EMPTY_WEIGHTS)
+  const [bucketWeights, setBucketWeights] = useState<Record<string, number>>(DEFAULT_BUCKET_WEIGHTS)
+  const [combiner, setCombiner] = useState<Combiner>(DEFAULT_COMBINER)
   const [showConfiguration, setShowConfiguration] = useState(false)
 
   const [selectedBooks, setSelectedBooks] = useState<string[]>([])
@@ -80,9 +104,25 @@ export function SearchPage() {
         setConfigId(configKey(preferred))
         setWeights(preferred.weights.weights)
         setVariantWeights(preferred.weights.variant_weights)
+        setBucketWeights(preferred.weights.bucket_weights ?? DEFAULT_BUCKET_WEIGHTS)
+        setCombiner(preferred.weights.combiner ?? DEFAULT_COMBINER)
       }
     })
   }, [])
+
+  useEffect(() => {
+    if (!language) return
+    setSelectedBooks([])
+    setSelectedSources([])
+    // Facet options load independent of any query, so a scope (e.g. "Rahlfs
+    // Genesis") can be picked before the user has typed anything to search for.
+    getFacets(language).then(setFacets)
+  }, [language])
+
+  function refreshBrowseFacets(books: string[], sources: string[]) {
+    if (!language) return
+    void getFacets(language, { books, sources }).then(setFacets)
+  }
 
   function selectConfiguration(key: string) {
     setConfigId(key)
@@ -90,6 +130,8 @@ export function SearchPage() {
     if (found) {
       setWeights(found.weights.weights)
       setVariantWeights(found.weights.variant_weights)
+      setBucketWeights(found.weights.bucket_weights ?? DEFAULT_BUCKET_WEIGHTS)
+      setCombiner(found.weights.combiner ?? DEFAULT_COMBINER)
     }
   }
 
@@ -104,6 +146,8 @@ export function SearchPage() {
       const response = await search(language, query, {
         weights,
         variant_weights: variantWeights,
+        bucket_weights: bucketWeights,
+        combiner,
         books: (overrides.books ?? selectedBooks).length ? overrides.books ?? selectedBooks : undefined,
         sources: (overrides.sources ?? selectedSources).length
           ? overrides.sources ?? selectedSources
@@ -133,7 +177,11 @@ export function SearchPage() {
       ? selectedBooks.filter((v) => v !== key)
       : [...selectedBooks, key]
     setSelectedBooks(next)
-    void runSearch({ books: next })
+    if (results) {
+      void runSearch({ books: next })
+    } else {
+      refreshBrowseFacets(next, selectedSources)
+    }
   }
 
   function toggleSource(key: string) {
@@ -141,7 +189,11 @@ export function SearchPage() {
       ? selectedSources.filter((v) => v !== key)
       : [...selectedSources, key]
     setSelectedSources(next)
-    void runSearch({ sources: next })
+    if (results) {
+      void runSearch({ sources: next })
+    } else {
+      refreshBrowseFacets(selectedBooks, next)
+    }
   }
 
   function handleScoreDistributionOpenChange(open: boolean) {
@@ -220,11 +272,11 @@ export function SearchPage() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-4">
             {CATEGORY_FIELDS.map(({ category, fields }) => (
               <div key={category} className="space-y-2">
                 <p className="font-medium text-foreground">{category}</p>
-                <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                <div className="grid grid-cols-[auto_1fr_1fr] gap-x-2 gap-y-1 text-xs text-muted-foreground">
                   <span />
                   <span>Main</span>
                   <span>Variant</span>
@@ -258,6 +310,108 @@ export function SearchPage() {
                 </div>
               </div>
             ))}
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="font-medium text-foreground">Search emphasis</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Wording</span>
+                  <Slider
+                    aria-label="Search emphasis"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={[bucketWeights.semantic ?? 0.5]}
+                    onValueChange={(value) => {
+                      const semantic = Array.isArray(value) ? value[0] : value
+                      setBucketWeights({ lexical: 1 - semantic, semantic })
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">Meaning</span>
+                </div>
+                <p className="text-center text-xs text-muted-foreground">
+                  {Math.round((1 - (bucketWeights.semantic ?? 0.5)) * 100)}% wording ·{' '}
+                  {Math.round((bucketWeights.semantic ?? 0.5) * 100)}% meaning
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-medium text-foreground">Combiner</p>
+                <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={combiner.technique}
+                  onValueChange={(value) => {
+                    if (!value) return
+                    const technique = value as CombinerTechnique
+                    setCombiner(
+                      technique === 'z_score'
+                        ? { technique, combination: 'arithmetic_mean' }
+                        : { ...combiner, technique },
+                    )
+                  }}
+                >
+                  <SelectTrigger aria-label="Combiner technique" className="w-56">
+                    <SelectValue>
+                      {COMBINER_TECHNIQUES.find((t) => t.value === combiner.technique)?.label}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COMBINER_TECHNIQUES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {combiner.technique === 'rrf' && (
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="rank-constant" className="text-sm text-muted-foreground">
+                      Rank constant
+                    </Label>
+                    <Input
+                      id="rank-constant"
+                      type="number"
+                      min={1}
+                      className="w-24"
+                      value={combiner.rank_constant ?? 60}
+                      onChange={(e) =>
+                        setCombiner({ ...combiner, rank_constant: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                )}
+
+                {/* z_score only combines via arithmetic_mean — no choice to make, so no picker */}
+                {combiner.technique !== 'rrf' && combiner.technique !== 'z_score' && (
+                  <Select
+                    value={combiner.combination ?? 'arithmetic_mean'}
+                    onValueChange={(value) =>
+                      value &&
+                      setCombiner({ ...combiner, combination: value as CombinationTechnique })
+                    }
+                  >
+                    <SelectTrigger aria-label="Combination technique" className="w-48">
+                      <SelectValue>
+                        {
+                          COMBINATION_TECHNIQUES.find(
+                            (t) => t.value === (combiner.combination ?? 'arithmetic_mean'),
+                          )?.label
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COMBINATION_TECHNIQUES.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>
+                          {t.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
+          </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -276,7 +430,7 @@ export function SearchPage() {
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      {results && (
+      {language && (
         <div className="flex items-start gap-0">
           <div
             className={`shrink-0 overflow-hidden transition-[width,opacity] duration-300 ease-in-out ${
@@ -343,35 +497,45 @@ export function SearchPage() {
                 />
                 <TooltipContent>{showFilters ? 'Hide filters' : 'Show filters'}</TooltipContent>
               </Tooltip>
-              <span>
-                {count} results in {tookMs}ms
-              </span>
+              {results && (
+                <span>
+                  {count} results in {tookMs}ms
+                </span>
+              )}
             </div>
 
-            {results.length === 0 && <p className="text-sm text-muted-foreground">No results.</p>}
+            {!results && (
+              <p className="text-sm text-muted-foreground">
+                Enter a query to search{selectedBooks.length || selectedSources.length ? ' within the selected filters' : ''}.
+              </p>
+            )}
 
-            <div className="space-y-3" dir={selectedLanguage?.directionality}>
-              {results.map((hit, i) => (
-                <div key={i} className="border-b border-border pb-3">
-                  <p className="text-sm font-medium">
-                    {hit.book} {hit.chapter}:{hit.verse}{' '}
-                    <span className="font-normal text-muted-foreground">[{hit.source}]</span>
-                  </p>
-                  <p className="mt-1">{hit.content}</p>
-                  {hit.variant.length > 0 && (
-                    <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-                      {hit.variant.map((v, j) => (
-                        <li key={j}>
-                          <span className="font-medium">{v.source}:</span> {v.content}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
-            </div>
+            {results?.length === 0 && <p className="text-sm text-muted-foreground">No results.</p>}
 
-            {results.length > 0 && (
+            {results && (
+              <div className="space-y-3" dir={selectedLanguage?.directionality}>
+                {results.map((hit, i) => (
+                  <div key={i} className="border-b border-border pb-3">
+                    <p className="text-sm font-medium">
+                      {hit.book} {hit.chapter}:{hit.verse}{' '}
+                      <span className="font-normal text-muted-foreground">[{hit.source}]</span>
+                    </p>
+                    <p className="mt-1">{hit.content}</p>
+                    {hit.variant.length > 0 && (
+                      <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                        {hit.variant.map((v, j) => (
+                          <li key={j}>
+                            <span className="font-medium">{v.source}:</span> {v.content}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {results && results.length > 0 && (
               <div className="flex items-center justify-between">
                 <Button
                   variant="outline"
