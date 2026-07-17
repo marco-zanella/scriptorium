@@ -134,6 +134,29 @@ export function listLanguages(): Promise<LanguageOut[]> {
   return request<LanguageOut[]>('/search/languages')
 }
 
+export interface FacetBucket {
+  key: string
+  count: number
+}
+
+export interface SearchFacets {
+  book: FacetBucket[]
+  source: FacetBucket[]
+}
+
+// Facet options independent of any query — lets the filter sidebar populate
+// (and a scope like "Rahlfs Genesis" be pre-selected) before a search runs.
+export function getFacets(
+  language: string,
+  options: { books?: string[]; sources?: string[] } = {},
+): Promise<SearchFacets> {
+  const params = new URLSearchParams()
+  for (const book of options.books ?? []) params.append('books', book)
+  for (const source of options.sources ?? []) params.append('sources', source)
+  const query = params.toString()
+  return request<SearchFacets>(`/search/${language}/facets${query ? `?${query}` : ''}`)
+}
+
 export interface SearchVariant {
   source: string
   content: string
@@ -147,16 +170,6 @@ export interface SearchHit {
   content: string | null
   variant: SearchVariant[]
   score: number
-}
-
-export interface FacetBucket {
-  key: string
-  count: number
-}
-
-export interface SearchFacets {
-  book: FacetBucket[]
-  source: FacetBucket[]
 }
 
 export interface ScoreStats {

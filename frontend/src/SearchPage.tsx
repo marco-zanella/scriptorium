@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Fragment, useEffect, useState } from 'react'
 import {
   ApiError,
+  getFacets,
   listLanguages,
   listSearchConfigurations,
   search,
@@ -109,6 +110,20 @@ export function SearchPage() {
     })
   }, [])
 
+  useEffect(() => {
+    if (!language) return
+    setSelectedBooks([])
+    setSelectedSources([])
+    // Facet options load independent of any query, so a scope (e.g. "Rahlfs
+    // Genesis") can be picked before the user has typed anything to search for.
+    getFacets(language).then(setFacets)
+  }, [language])
+
+  function refreshBrowseFacets(books: string[], sources: string[]) {
+    if (!language) return
+    void getFacets(language, { books, sources }).then(setFacets)
+  }
+
   function selectConfiguration(key: string) {
     setConfigId(key)
     const found = configurations.find((c) => configKey(c) === key)
@@ -162,7 +177,11 @@ export function SearchPage() {
       ? selectedBooks.filter((v) => v !== key)
       : [...selectedBooks, key]
     setSelectedBooks(next)
-    void runSearch({ books: next })
+    if (results) {
+      void runSearch({ books: next })
+    } else {
+      refreshBrowseFacets(next, selectedSources)
+    }
   }
 
   function toggleSource(key: string) {
@@ -170,7 +189,11 @@ export function SearchPage() {
       ? selectedSources.filter((v) => v !== key)
       : [...selectedSources, key]
     setSelectedSources(next)
-    void runSearch({ sources: next })
+    if (results) {
+      void runSearch({ sources: next })
+    } else {
+      refreshBrowseFacets(selectedBooks, next)
+    }
   }
 
   function handleScoreDistributionOpenChange(open: boolean) {
@@ -407,7 +430,7 @@ export function SearchPage() {
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      {results && (
+      {language && (
         <div className="flex items-start gap-0">
           <div
             className={`shrink-0 overflow-hidden transition-[width,opacity] duration-300 ease-in-out ${
@@ -474,35 +497,45 @@ export function SearchPage() {
                 />
                 <TooltipContent>{showFilters ? 'Hide filters' : 'Show filters'}</TooltipContent>
               </Tooltip>
-              <span>
-                {count} results in {tookMs}ms
-              </span>
+              {results && (
+                <span>
+                  {count} results in {tookMs}ms
+                </span>
+              )}
             </div>
 
-            {results.length === 0 && <p className="text-sm text-muted-foreground">No results.</p>}
+            {!results && (
+              <p className="text-sm text-muted-foreground">
+                Enter a query to search{selectedBooks.length || selectedSources.length ? ' within the selected filters' : ''}.
+              </p>
+            )}
 
-            <div className="space-y-3" dir={selectedLanguage?.directionality}>
-              {results.map((hit, i) => (
-                <div key={i} className="border-b border-border pb-3">
-                  <p className="text-sm font-medium">
-                    {hit.book} {hit.chapter}:{hit.verse}{' '}
-                    <span className="font-normal text-muted-foreground">[{hit.source}]</span>
-                  </p>
-                  <p className="mt-1">{hit.content}</p>
-                  {hit.variant.length > 0 && (
-                    <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-                      {hit.variant.map((v, j) => (
-                        <li key={j}>
-                          <span className="font-medium">{v.source}:</span> {v.content}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
-            </div>
+            {results?.length === 0 && <p className="text-sm text-muted-foreground">No results.</p>}
 
-            {results.length > 0 && (
+            {results && (
+              <div className="space-y-3" dir={selectedLanguage?.directionality}>
+                {results.map((hit, i) => (
+                  <div key={i} className="border-b border-border pb-3">
+                    <p className="text-sm font-medium">
+                      {hit.book} {hit.chapter}:{hit.verse}{' '}
+                      <span className="font-normal text-muted-foreground">[{hit.source}]</span>
+                    </p>
+                    <p className="mt-1">{hit.content}</p>
+                    {hit.variant.length > 0 && (
+                      <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                        {hit.variant.map((v, j) => (
+                          <li key={j}>
+                            <span className="font-medium">{v.source}:</span> {v.content}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {results && results.length > 0 && (
               <div className="flex items-center justify-between">
                 <Button
                   variant="outline"

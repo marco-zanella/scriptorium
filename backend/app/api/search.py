@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.auth.dependencies import Principal, require_role
@@ -10,6 +10,7 @@ from app.search.query import (
     DEFAULT_VARIANT_WEIGHTS,
     DEFAULT_WEIGHTS,
 )
+from app.search.service import browse_facets
 from app.search.service import search as run_search
 
 router = APIRouter(prefix="/api/search", tags=["search"])
@@ -83,6 +84,29 @@ def languages() -> list[LanguageOut]:
         )
         for pack in list_language_packs()
     ]
+
+
+@router.get("/{language}/facets", response_model=dict[str, list[FacetBucket]])
+def language_facets(
+    language: str,
+    books: list[str] = Query([]),
+    sources: list[str] = Query([]),
+    principal: Principal = Depends(require_role("use_search_engine")),
+) -> dict[str, list[FacetBucket]]:
+    """Book/source facet options with no query yet — lets the frontend populate
+    the filter sidebar (and a user pre-select a scope) before typing anything."""
+    try:
+        language_pack = get_language_pack(language)
+    except UnknownLanguageError:
+        raise HTTPException(status_code=404, detail=f"Unknown language: {language}") from None
+
+    facets = browse_facets(
+        get_client(), language_pack, books=books or None, sources=sources or None
+    )
+    return {
+        name: [FacetBucket(key=b.key, count=b.count) for b in buckets]
+        for name, buckets in facets.items()
+    }
 
 
 @router.post("/{language}", response_model=SearchResponse)

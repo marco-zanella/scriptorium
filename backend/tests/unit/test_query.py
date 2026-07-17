@@ -219,6 +219,17 @@ def test_facets_body_match_none_when_nothing_active() -> None:
     assert body["query"] == {"match_none": {}}
 
 
+def test_facets_body_browse_mode_matches_everything() -> None:
+    """query=None (no search text yet) is "browse" mode — matches every
+    document, so the filter sidebar can populate before a user types anything."""
+    body = build_facets_body(None, books=["genesis"])
+    assert body["query"] == {"match_all": {}}
+    assert body["aggs"]["by_book"]["filter"]["bool"]["filter"] == []
+    assert body["aggs"]["by_source"]["filter"]["bool"]["filter"] == [
+        {"terms": {"book": ["genesis"]}}
+    ]
+
+
 def test_facets_body_by_book_excludes_own_filter_but_keeps_source() -> None:
     body = build_facets_body(
         "agape",

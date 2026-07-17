@@ -266,8 +266,8 @@ def _facet_aggregation(field: str, books: list[str] | None, sources: list[str] |
 
 
 def build_facets_body(
-    query: str,
-    query_vector: list[float] | None,
+    query: str | None,
+    query_vector: list[float] | None = None,
     weights: dict[str, float] | None = None,
     variant_weights: dict[str, float] | None = None,
     books: list[str] | None = None,
@@ -288,9 +288,23 @@ def build_facets_body(
     documents swapped relative rank between an embedded-filter and a post_filter
     version of an otherwise identical query). Keeping build_hybrid_body's
     filtering untouched and giving facets their own unscored request removes
-    that risk entirely, rather than trading it for cheaper compute."""
+    that risk entirely, rather than trading it for cheaper compute.
+
+    `query=None` is "browse" mode (no search text yet, e.g. the filter sidebar
+    populating before the user has typed anything) — matches every document,
+    same as an unfiltered `match_all`, so facets reflect the whole language
+    (crossed with whatever books/sources are already pre-selected)."""
     weights = weights if weights is not None else DEFAULT_WEIGHTS
     variant_weights = variant_weights if variant_weights is not None else DEFAULT_VARIANT_WEIGHTS
+
+    if query is None:
+        return {
+            "query": {"match_all": {}},
+            "aggs": {
+                "by_book": _facet_aggregation("book", books, sources),
+                "by_source": _facet_aggregation("source", books, sources),
+            },
+        }
 
     lexical = build_lexical_query(query, weights, variant_weights)
     semantic = (

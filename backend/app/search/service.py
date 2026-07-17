@@ -85,6 +85,36 @@ def _query_vector(
     return encode_query(encoder, language_pack.embedding_spec, query)
 
 
+def browse_facets(
+    client: OpenSearch,
+    language_pack: LanguagePack,
+    *,
+    books: list[str] | None = None,
+    sources: list[str] | None = None,
+) -> dict[str, list[FacetBucket]]:
+    """Book/source facet options independent of any query — lets the frontend
+    populate the filter sidebar (and let a user pre-select a scope like "Rahlfs
+    Genesis") before a search has ever run, not just as a search response
+    byproduct. Matches every document (`query=None` in build_facets_body), same
+    multi-select cross-filtering as a real search's facets.
+
+    A language with no ingested content yet (no index created) has no facets
+    to offer — not an error, just nothing indexed yet."""
+    if not client.indices.exists(index=index_name(language_pack)):
+        return {"book": [], "source": []}
+
+    response = client.search(
+        index=index_name(language_pack),
+        body=build_facets_body(None, books=books, sources=sources),
+        size=0,
+    )
+    aggregations = response.get("aggregations", {})
+    return {
+        "book": _buckets(aggregations, "by_book"),
+        "source": _buckets(aggregations, "by_source"),
+    }
+
+
 def search(
     client: OpenSearch,
     language_pack: LanguagePack,
@@ -104,6 +134,11 @@ def search(
     variant_weights = variant_weights if variant_weights is not None else DEFAULT_VARIANT_WEIGHTS
     bucket_weights = bucket_weights if bucket_weights is not None else DEFAULT_BUCKET_WEIGHTS
     combiner = combiner if combiner is not None else DEFAULT_COMBINER
+
+    # A language with no ingested content yet (no index created) has nothing to
+    # search — not an error, just no results.
+    if not client.indices.exists(index=index_name(language_pack)):
+        return SearchResult(took_ms=0, count=0, page=page, page_size=page_size)
 
     query_vector = _query_vector(language_pack, query, weights, variant_weights)
     body = build_hybrid_body(

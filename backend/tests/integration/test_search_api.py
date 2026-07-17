@@ -53,6 +53,85 @@ def test_search_unknown_language_is_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_facets_endpoint_requires_authentication(client: TestClient) -> None:
+    response = client.get("/api/search/grc/facets")
+    assert response.status_code == 401
+
+
+def test_facets_endpoint_requires_use_search_engine_role(client: TestClient) -> None:
+    response = client.get("/api/search/grc/facets", headers=_bearer(1, ["use_rag"]))
+    assert response.status_code == 403
+
+
+def test_facets_endpoint_unknown_language_is_not_found(client: TestClient) -> None:
+    response = client.get("/api/search/xxx/facets", headers=_bearer(1, ["use_search_engine"]))
+    assert response.status_code == 404
+
+
+def test_search_and_facets_handle_a_language_with_no_index_yet(client: TestClient) -> None:
+    """A registered language can have no content ingested yet (no OpenSearch
+    index created) — e.g. arb in this environment. Must return empty results,
+    not a 500 (confirmed against the real dev environment, where selecting such
+    a language crashed both the facets and search endpoints)."""
+    os_client = get_client()
+    arb = next(pack for pack in list_language_packs() if pack.iso_code == "arb")
+    os_client.indices.delete(index=index_name(arb), ignore_unavailable=True)
+
+    facets_response = client.get(
+        "/api/search/arb/facets", headers=_bearer(1, ["use_search_engine"])
+    )
+    assert facets_response.status_code == 200
+    assert facets_response.json() == {"book": [], "source": []}
+
+    search_response = client.post(
+        "/api/search/arb", json={"query": "test"}, headers=_bearer(1, ["use_search_engine"])
+    )
+    assert search_response.status_code == 200
+    assert search_response.json()["count"] == 0
+
+
+def test_facets_endpoint_lists_options_with_no_query(client: TestClient) -> None:
+    """Browse mode: facet options must be available before any search text is
+    typed, so a user can pre-select a scope like "Rahlfs Genesis" first."""
+    os_client = get_client()
+    grc = next(pack for pack in list_language_packs() if pack.iso_code == "grc")
+    for book, source in (
+        ("browse-genesis", "browse-gottingen"),
+        ("browse-exodus", "browse-rahlfs"),
+    ):
+        os_client.index(
+            index=index_name(grc),
+            body={
+                "book": book,
+                "chapter": "1",
+                "verse": "1",
+                "source": source,
+                "content": "browse-marker",
+                "variant": [],
+            },
+            refresh=True,
+        )
+
+    response = client.get("/api/search/grc/facets", headers=_bearer(1, ["use_search_engine"]))
+    assert response.status_code == 200
+    body = response.json()
+    book_keys = {b["key"] for b in body["book"]}
+    source_keys = {s["key"] for s in body["source"]}
+    assert {"browse-genesis", "browse-exodus"} <= book_keys
+    assert {"browse-gottingen", "browse-rahlfs"} <= source_keys
+
+    # pre-selecting a book narrows the source facet (cross-filter), but not itself
+    scoped = client.get(
+        "/api/search/grc/facets",
+        params={"books": ["browse-genesis"]},
+        headers=_bearer(1, ["use_search_engine"]),
+    ).json()
+    scoped_sources = {s["key"] for s in scoped["source"]}
+    assert scoped_sources == {"browse-gottingen"}
+    scoped_books = {b["key"] for b in scoped["book"]}
+    assert "browse-exodus" in scoped_books  # own dimension stays multi-selectable
+
+
 def test_search_returns_indexed_document_with_variant(client: TestClient) -> None:
     os_client = get_client()
     grc = next(pack for pack in list_language_packs() if pack.iso_code == "grc")
