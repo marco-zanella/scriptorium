@@ -5,16 +5,24 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import Principal, require_role
 from app.db.session import get_db
 from app.search.models import SearchConfiguration
-from app.search.presets import PRESETS
 
 router = APIRouter(prefix="/api/search/configurations", tags=["search-configurations"])
 
 
 class SearchConfigurationOut(BaseModel):
-    id: int | None
+    id: int
     name: str
     weights: dict
     is_preset: bool
+
+    @classmethod
+    def from_model(cls, config: SearchConfiguration) -> "SearchConfigurationOut":
+        return cls(
+            id=config.id,
+            name=config.name,
+            weights=config.weights,
+            is_preset=config.owner_id is None,
+        )
 
 
 class SearchConfigurationCreate(BaseModel):
@@ -27,21 +35,25 @@ def list_configurations(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_role("use_search_engine")),
 ) -> list[SearchConfigurationOut]:
-    presets = [
-        SearchConfigurationOut(id=None, name=name, weights=weights, is_preset=True)
-        for name, weights in PRESETS.items()
-    ]
-    own = (
+    configs = (
         db.query(SearchConfiguration)
-        .filter(SearchConfiguration.owner_id == principal.user_id)
-        .order_by(SearchConfiguration.name)
+        .filter(
+            (SearchConfiguration.owner_id == principal.user_id)
+            | (SearchConfiguration.owner_id.is_(None))
+        )
+        .order_by(SearchConfiguration.owner_id.is_(None).desc(), SearchConfiguration.name)
         .all()
     )
-    saved = [
-        SearchConfigurationOut(id=c.id, name=c.name, weights=c.weights, is_preset=False)
-        for c in own
-    ]
-    return presets + saved
+    return [SearchConfigurationOut.from_model(c) for c in configs]
+
+
+def _global_name_exists(db: Session, name: str, exclude_id: int | None = None) -> bool:
+    query = db.query(SearchConfiguration).filter(
+        SearchConfiguration.owner_id.is_(None), SearchConfiguration.name == name
+    )
+    if exclude_id is not None:
+        query = query.filter(SearchConfiguration.id != exclude_id)
+    return query.first() is not None
 
 
 @router.post("", response_model=SearchConfigurationOut, status_code=201)
@@ -50,7 +62,7 @@ def create_configuration(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_role("use_search_engine")),
 ) -> SearchConfigurationOut:
-    if body.name in PRESETS:
+    if _global_name_exists(db, body.name):
         raise HTTPException(status_code=409, detail="Name conflicts with a built-in preset")
     exists = (
         db.query(SearchConfiguration)
@@ -66,22 +78,21 @@ def create_configuration(
     config = SearchConfiguration(owner_id=principal.user_id, name=body.name, weights=body.weights)
     db.add(config)
     db.commit()
-    return SearchConfigurationOut(
-        id=config.id, name=config.name, weights=config.weights, is_preset=False
-    )
+    return SearchConfigurationOut.from_model(config)
 
 
-def _get_own_configuration(
-    db: Session, configuration_id: int, owner_id: int
+def _get_editable_configuration(
+    db: Session, configuration_id: int, principal: Principal
 ) -> SearchConfiguration:
-    config = (
-        db.query(SearchConfiguration)
-        .filter(
-            SearchConfiguration.id == configuration_id,
-            SearchConfiguration.owner_id == owner_id,
+    query = db.query(SearchConfiguration).filter(SearchConfiguration.id == configuration_id)
+    if principal.is_superuser:
+        query = query.filter(
+            (SearchConfiguration.owner_id == principal.user_id)
+            | (SearchConfiguration.owner_id.is_(None))
         )
-        .one_or_none()
-    )
+    else:
+        query = query.filter(SearchConfiguration.owner_id == principal.user_id)
+    config = query.one_or_none()
     if config is None:
         raise HTTPException(status_code=404, detail="Configuration not found")
     return config
@@ -94,14 +105,14 @@ def update_configuration(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_role("use_search_engine")),
 ) -> SearchConfigurationOut:
-    config = _get_own_configuration(db, configuration_id, principal.user_id)
+    config = _get_editable_configuration(db, configuration_id, principal)
 
-    if body.name in PRESETS:
+    if _global_name_exists(db, body.name, exclude_id=configuration_id):
         raise HTTPException(status_code=409, detail="Name conflicts with a built-in preset")
     exists = (
         db.query(SearchConfiguration)
         .filter(
-            SearchConfiguration.owner_id == principal.user_id,
+            SearchConfiguration.owner_id == config.owner_id,
             SearchConfiguration.name == body.name,
             SearchConfiguration.id != configuration_id,
         )
@@ -113,9 +124,7 @@ def update_configuration(
     config.name = body.name
     config.weights = body.weights
     db.commit()
-    return SearchConfigurationOut(
-        id=config.id, name=config.name, weights=config.weights, is_preset=False
-    )
+    return SearchConfigurationOut.from_model(config)
 
 
 @router.delete("/{configuration_id}", status_code=204)
@@ -124,6 +133,6 @@ def delete_configuration(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_role("use_search_engine")),
 ) -> None:
-    config = _get_own_configuration(db, configuration_id, principal.user_id)
+    config = _get_editable_configuration(db, configuration_id, principal)
     db.delete(config)
     db.commit()
