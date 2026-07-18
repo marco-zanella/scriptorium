@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import Principal, require_role
 from app.db.session import get_db
+from app.eval.models import TestCollection
 from app.search.models import SearchConfiguration
 
 router = APIRouter(prefix="/api/search/configurations", tags=["search-configurations"])
@@ -134,5 +135,16 @@ def delete_configuration(
     principal: Principal = Depends(require_role("use_search_engine")),
 ) -> None:
     config = _get_editable_configuration(db, configuration_id, principal)
+    referencing_count = (
+        db.query(TestCollection)
+        .filter(TestCollection.search_configuration_id == configuration_id)
+        .count()
+    )
+    if referencing_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete this configuration because it's used by "
+            f"{referencing_count} test collection(s)",
+        )
     db.delete(config)
     db.commit()

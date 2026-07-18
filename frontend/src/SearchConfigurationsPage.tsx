@@ -97,7 +97,6 @@ export function SearchConfigurationsPage() {
   }, [])
 
   async function handleDelete(config: SearchConfigurationOut) {
-    if (config.id === null) return
     await deleteSearchConfiguration(config.id)
     await load()
   }
@@ -198,7 +197,6 @@ export function SearchConfigurationsPage() {
                           <ConfigurationForm
                             initial={config}
                             onSubmit={async (name, weights) => {
-                              if (config.id === null) return
                               await updateSearchConfiguration(config.id, name, weights)
                               setEditing(null)
                               await load()

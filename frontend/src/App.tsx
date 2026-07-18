@@ -1,6 +1,10 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AdminPage } from './AdminPage'
 import { DashboardPage } from './DashboardPage'
+import { EvalResultPage } from './EvalResultPage'
+import { EvalTestCasesPage } from './EvalTestCasesPage'
+import { EvalTestCollectionDetailPage } from './EvalTestCollectionDetailPage'
+import { EvalTestCollectionsPage } from './EvalTestCollectionsPage'
 import { Layout } from './Layout'
 import { LoginPage } from './LoginPage'
 import { RequireAuth, RequireRole } from './route-guards'
@@ -44,6 +48,38 @@ function App() {
               element={
                 <RequireRole role="manage_users">
                   <AdminPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="eval/test-cases"
+              element={
+                <RequireRole role="run_experiments">
+                  <EvalTestCasesPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="eval/collections"
+              element={
+                <RequireRole role="run_experiments">
+                  <EvalTestCollectionsPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="eval/collections/:id"
+              element={
+                <RequireRole role="run_experiments">
+                  <EvalTestCollectionDetailPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="eval/results/:id"
+              element={
+                <RequireRole role="run_experiments">
+                  <EvalResultPage />
                 </RequireRole>
               }
             />

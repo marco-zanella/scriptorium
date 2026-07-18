@@ -4,6 +4,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 import app.auth.models  # noqa: F401  registers models on Base.metadata for autogenerate
+import app.eval.models  # noqa: F401  registers models on Base.metadata for autogenerate
 import app.search.models  # noqa: F401  registers models on Base.metadata for autogenerate
 from app.core.config import settings
 from app.db.base import Base
