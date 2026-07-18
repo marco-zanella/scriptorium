@@ -36,6 +36,8 @@ jobs:
       JWT_SECRET_KEY: test-only-secret-not-used-in-production
       OPENSEARCH_HOST: localhost
       OPENSEARCH_PORT: 9200
+      API_HOST: localhost
+      API_PORT: 8000
       # Isolated from any real index namespace — same reasoning as scriptorium_test
       # for Postgres above (tests create/delete indices, never touch dev data).
       OPENSEARCH_INDEX_PREFIX: ci_test_
