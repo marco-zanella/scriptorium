@@ -124,6 +124,26 @@ export function revokeRole(userId: number, role: string): Promise<UserOut> {
   return request<UserOut>(`/users/${userId}/roles/${role}`, { method: 'DELETE' })
 }
 
+export interface ApiTokenOut {
+  id: number
+  name: string | null
+  scopes: string[]
+  created_at: string
+  expires_at: string | null
+  revoked_at: string | null
+}
+
+export interface ApiTokenCreated extends ApiTokenOut {
+  raw_key: string
+}
+
+export function createApiToken(name: string, scopes: string[]): Promise<ApiTokenCreated> {
+  return request<ApiTokenCreated>('/api-tokens', {
+    method: 'POST',
+    body: JSON.stringify({ name, scopes }),
+  })
+}
+
 export interface LanguageOut {
   iso_code: string
   display_name: string
@@ -163,6 +183,8 @@ export interface SearchVariant {
 }
 
 export interface SearchHit {
+  id: string
+  type: string | null
   book: string | null
   chapter: string | null
   verse: string | null

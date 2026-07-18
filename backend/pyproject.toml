@@ -26,12 +26,12 @@ dev = [
     "ruff>=0.8",
 ]
 cli = [
-    "typer>=0.12",
     "httpx>=0.27",
 ]
 
 [project.scripts]
-scriptorium-embed = "cli.embedding_cli:app"
+scriptorium-embed = "cli.embed_documents:main"
+scriptorium-ingest = "cli.ingest_documents:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

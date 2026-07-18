@@ -174,6 +174,8 @@ def search(
 
     results = [
         {
+            "id": hit["_id"],
+            "type": hit["_source"].get("type"),
             "book": hit["_source"].get("book"),
             "chapter": hit["_source"].get("chapter"),
             "verse": hit["_source"].get("verse"),

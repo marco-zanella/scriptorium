@@ -15,12 +15,19 @@ class Settings(BaseSettings):
     opensearch_port: int
     opensearch_index_prefix: str = ""
 
+    api_host: str
+    api_port: int
+
     @property
     def database_url(self) -> str:
         return (
             f"postgresql+psycopg2://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+
+    @property
+    def server_url(self) -> str:
+        return f"http://{self.api_host}:{self.api_port}"
 
 
 settings = Settings()
