@@ -5,7 +5,7 @@ from app.auth.api_keys import ApiKeyPrincipal, require_scope
 from app.registry import UnknownLanguageError, get_language_pack
 from app.search.client import get_client
 from app.search.index_manager import ensure_index
-from app.search.ingest import DimensionMismatchError, bulk_index_documents
+from app.search.ingest import DimensionMismatchError, DuplicateIdError, bulk_index_documents
 
 router = APIRouter(prefix="/api/ingestion", tags=["ingestion"])
 
@@ -17,6 +17,8 @@ class IngestVariant(BaseModel):
 
 
 class IngestDocument(BaseModel):
+    id: str
+    type: str
     book: str | None = None
     chapter: str | None = None
     verse: str | None = None
@@ -71,6 +73,8 @@ def ingest(
             client, language_pack, [doc.model_dump() for doc in body.documents]
         )
     except DimensionMismatchError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except DuplicateIdError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
     return IngestResponse(indexed_count=indexed_count)

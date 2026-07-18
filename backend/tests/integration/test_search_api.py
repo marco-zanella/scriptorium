@@ -160,6 +160,38 @@ def test_search_returns_indexed_document_with_variant(client: TestClient) -> Non
     assert {"key": "gottingen", "count": body["count"]} in body["facets"]["source"]
 
 
+def test_search_result_carries_id_and_type(client: TestClient) -> None:
+    os_client = get_client()
+    grc = next(pack for pack in list_language_packs() if pack.iso_code == "grc")
+    os_client.index(
+        index=index_name(grc),
+        id="gottingen:genesis:1:id-type-marker",
+        body={
+            "id": "gottingen:genesis:1:id-type-marker",
+            "type": "verse",
+            "book": "id-type-marker-book",
+            "chapter": "1",
+            "verse": "1",
+            "source": "gottingen",
+            "content": "id-and-type-round-trip-marker",
+            "variant": [],
+        },
+        refresh=True,
+    )
+
+    response = client.post(
+        "/api/search/grc",
+        json={"query": "id-and-type-round-trip-marker", "weights": {"text": 1}},
+        headers=_bearer(1, ["use_search_engine"]),
+    )
+
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert results
+    assert results[0]["id"] == "gottingen:genesis:1:id-type-marker"
+    assert results[0]["type"] == "verse"
+
+
 def test_score_stats_omitted_unless_requested(client: TestClient) -> None:
     response = client.post(
         "/api/search/grc", json={"query": "θεος"}, headers=_bearer(1, ["use_search_engine"])

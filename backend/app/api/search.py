@@ -41,6 +41,8 @@ class SearchRequest(BaseModel):
 
 
 class SearchHit(BaseModel):
+    id: str
+    type: str | None
     book: str | None
     chapter: str | None
     verse: str | None

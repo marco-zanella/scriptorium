@@ -71,6 +71,10 @@ def _valid_document(**overrides) -> dict:
         "variant": [],
     }
     document.update(overrides)
+    document.setdefault(
+        "id", f"{document['source']}:{document['book']}:{document['chapter']}:{document['verse']}"
+    )
+    document.setdefault("type", "verse")
     return document
 
 
@@ -193,3 +197,53 @@ def test_ingest_succeeds_with_valid_documents(client: TestClient, db_session: Se
 
     assert response.status_code == 200
     assert response.json()["indexed_count"] == 2
+
+
+def test_ingest_rejects_whole_batch_on_duplicate_id(
+    client: TestClient, db_session: Session
+) -> None:
+    _, raw_key = _create_token(db_session, scopes=["index_content"])
+    os_client = get_client()
+    eng_index = index_name(ENG)
+    os_client.indices.refresh(index=eng_index)
+    before = os_client.count(index=eng_index)["count"]
+
+    documents = [
+        _valid_document(id="dup-id", verse="1"),
+        _valid_document(id="dup-id", verse="2"),
+    ]
+    response = client.post(
+        "/api/ingestion/eng",
+        json=_ingest_body(documents),
+        headers={"Authorization": f"Bearer {raw_key}"},
+    )
+
+    assert response.status_code == 422
+    os_client.indices.refresh(index=eng_index)
+    after = os_client.count(index=eng_index)["count"]
+    assert after == before  # no partial write
+
+
+def test_reingesting_same_id_upserts_in_place(client: TestClient, db_session: Session) -> None:
+    _, raw_key = _create_token(db_session, scopes=["index_content"])
+    os_client = get_client()
+    eng_index = index_name(ENG)
+
+    doc_id = "upsert-test-genesis-1-1"
+    first = client.post(
+        "/api/ingestion/eng",
+        json=_ingest_body([_valid_document(id=doc_id, content="first version")]),
+        headers={"Authorization": f"Bearer {raw_key}"},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/api/ingestion/eng",
+        json=_ingest_body([_valid_document(id=doc_id, content="second version")]),
+        headers={"Authorization": f"Bearer {raw_key}"},
+    )
+    assert second.status_code == 200
+
+    os_client.indices.refresh(index=eng_index)
+    stored = os_client.get(index=eng_index, id=doc_id)
+    assert stored["_source"]["content"] == "second version"

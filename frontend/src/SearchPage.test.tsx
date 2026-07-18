@@ -103,6 +103,8 @@ describe('SearchPage', () => {
       page_size: 50,
       results: [
         {
+          id: 'gottingen:genesis:1:1',
+          type: 'verse',
           book: 'genesis',
           chapter: '1',
           verse: '1',
@@ -174,6 +176,8 @@ describe('SearchPage', () => {
       page_size: 50,
       results: [
         {
+          id: 'gottingen:genesis:1:1',
+          type: 'verse',
           book: 'genesis',
           chapter: '1',
           verse: '1',
@@ -210,6 +214,8 @@ describe('SearchPage', () => {
       page_size: 50,
       results: [
         {
+          id: 'gottingen:genesis:1:1',
+          type: 'verse',
           book: 'genesis',
           chapter: '1',
           verse: '1',
@@ -282,6 +288,8 @@ describe('SearchPage', () => {
       page_size: 50,
       results: [
         {
+          id: 'gottingen:genesis:1:1',
+          type: 'verse',
           book: 'genesis',
           chapter: '1',
           verse: '1',

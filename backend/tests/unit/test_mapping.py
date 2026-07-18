@@ -27,6 +27,12 @@ WITH_LANGUAGE_FIELD = _pack(
 WITH_EMBEDDING = _pack(icu_analysis_settings(), embedding_spec=SPEC)
 
 
+def test_id_and_type_are_keyword_properties() -> None:
+    mapping = build_mapping(NO_LANGUAGE_FIELD)
+    assert mapping["properties"]["id"] == {"type": "keyword"}
+    assert mapping["properties"]["type"] == {"type": "keyword"}
+
+
 def test_content_has_text_shingle_trigram_subfields() -> None:
     mapping = build_mapping(NO_LANGUAGE_FIELD)
     content = mapping["properties"]["content"]

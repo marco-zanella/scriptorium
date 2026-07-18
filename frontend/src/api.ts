@@ -163,6 +163,8 @@ export interface SearchVariant {
 }
 
 export interface SearchHit {
+  id: string
+  type: string | null
   book: string | null
   chapter: string | null
   verse: string | null

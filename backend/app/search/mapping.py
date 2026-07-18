@@ -40,6 +40,8 @@ def build_mapping(language_pack: LanguagePack) -> dict:
     """
     content_fields = _content_multi_fields(language_pack)
     properties = {
+        "id": {"type": "keyword"},
+        "type": {"type": "keyword"},
         "book": {"type": "keyword"},
         "chapter": {"type": "keyword"},
         "verse": {"type": "keyword"},

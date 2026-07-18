@@ -514,8 +514,8 @@ export function SearchPage() {
 
             {results && (
               <div className="space-y-3" dir={selectedLanguage?.directionality}>
-                {results.map((hit, i) => (
-                  <div key={i} className="border-b border-border pb-3">
+                {results.map((hit) => (
+                  <div key={hit.id} className="border-b border-border pb-3">
                     <p className="text-sm font-medium">
                       {hit.book} {hit.chapter}:{hit.verse}{' '}
                       <span className="font-normal text-muted-foreground">[{hit.source}]</span>
