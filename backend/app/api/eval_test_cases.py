@@ -2,9 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api.search import SearchHit
 from app.auth.dependencies import Principal, require_role
 from app.db.session import get_db
 from app.eval.models import TestCase, TestCaseTarget
+from app.registry import UnknownLanguageError, get_language_pack
+from app.search.client import get_client
+from app.search.service import assisted_content_search
 
 router = APIRouter(prefix="/api/eval/test-cases", tags=["eval-test-cases"])
 
@@ -28,6 +32,7 @@ class TestCaseOut(BaseModel):
     id: int
     content: str
     language: str
+    source: str | None
     context: str | None
     tags: list[str]
     targets: list[TestCaseTargetOut]
@@ -38,6 +43,7 @@ class TestCaseOut(BaseModel):
             id=case.id,
             content=case.content,
             language=case.language,
+            source=case.source,
             context=case.context,
             tags=case.tags,
             targets=[TestCaseTargetOut.from_model(t) for t in case.targets],
@@ -47,6 +53,7 @@ class TestCaseOut(BaseModel):
 class TestCaseCreate(BaseModel):
     content: str
     language: str
+    source: str | None = None
     context: str | None = None
     tags: list[str] = []
 
@@ -65,6 +72,13 @@ def _get_visible_case(db: Session, case_id: int, principal: Principal) -> TestCa
     return case
 
 
+def _validate_language(language: str) -> None:
+    try:
+        get_language_pack(language)
+    except UnknownLanguageError:
+        raise HTTPException(status_code=422, detail=f"Unknown language: {language}") from None
+
+
 @router.get("", response_model=list[TestCaseOut])
 def list_test_cases(
     db: Session = Depends(get_db),
@@ -80,16 +94,38 @@ def create_test_case(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_role("run_experiments")),
 ) -> TestCaseOut:
+    _validate_language(body.language)
     case = TestCase(
         owner_id=principal.user_id,
         content=body.content,
         language=body.language,
+        source=body.source,
         context=body.context,
         tags=body.tags,
     )
     db.add(case)
     db.commit()
     return TestCaseOut.from_model(case)
+
+
+# Registered ahead of GET /{case_id} — a static path below it would be shadowed,
+# since Starlette matches "content-search" against {case_id} before type coercion.
+@router.get("/content-search", response_model=list[SearchHit])
+def content_search(
+    language: str,
+    query: str,
+    principal: Principal = Depends(require_role("run_experiments")),
+) -> list[SearchHit]:
+    try:
+        language_pack = get_language_pack(language)
+    except UnknownLanguageError:
+        raise HTTPException(status_code=422, detail=f"Unknown language: {language}") from None
+
+    query = query.strip()
+    if not query:
+        return []
+    hits = assisted_content_search(get_client(), language_pack, query)
+    return [SearchHit(**hit) for hit in hits]
 
 
 @router.get("/{case_id}", response_model=TestCaseOut)
@@ -108,9 +144,11 @@ def update_test_case(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_role("run_experiments")),
 ) -> TestCaseOut:
+    _validate_language(body.language)
     case = _get_visible_case(db, case_id, principal)
     case.content = body.content
     case.language = body.language
+    case.source = body.source
     case.context = body.context
     case.tags = body.tags
     db.commit()

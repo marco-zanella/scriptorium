@@ -20,6 +20,7 @@ const CASE: TestCaseOut = {
   id: 7,
   content: 'who created the world',
   language: 'eng',
+  source: null,
   context: null,
   tags: [],
   targets: [],

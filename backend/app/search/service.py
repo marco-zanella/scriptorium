@@ -85,6 +85,20 @@ def _query_vector(
     return encode_query(encoder, language_pack.embedding_spec, query)
 
 
+def _hit_to_dict(hit: dict) -> dict:
+    return {
+        "id": hit["_id"],
+        "type": hit["_source"].get("type"),
+        "book": hit["_source"].get("book"),
+        "chapter": hit["_source"].get("chapter"),
+        "verse": hit["_source"].get("verse"),
+        "source": hit["_source"].get("source"),
+        "content": hit["_source"].get("content"),
+        "variant": hit["_source"].get("variant", []),
+        "score": hit["_score"],
+    }
+
+
 def browse_facets(
     client: OpenSearch,
     language_pack: LanguagePack,
@@ -172,20 +186,7 @@ def search(
         size=0,
     )
 
-    results = [
-        {
-            "id": hit["_id"],
-            "type": hit["_source"].get("type"),
-            "book": hit["_source"].get("book"),
-            "chapter": hit["_source"].get("chapter"),
-            "verse": hit["_source"].get("verse"),
-            "source": hit["_source"].get("source"),
-            "content": hit["_source"].get("content"),
-            "variant": hit["_source"].get("variant", []),
-            "score": hit["_score"],
-        }
-        for hit in response["hits"]["hits"]
-    ]
+    results = [_hit_to_dict(hit) for hit in response["hits"]["hits"]]
 
     facet_aggregations = facets_response.get("aggregations", {})
     facets = {
@@ -202,3 +203,58 @@ def search(
         facets=facets,
         score_stats=_score_stats(response.get("aggregations", {})),
     )
+
+
+def assisted_content_search(
+    client: OpenSearch,
+    language_pack: LanguagePack,
+    query: str,
+    *,
+    size: int = 8,
+) -> list[dict]:
+    """Content picker for referencing a specific passage/work by id (e.g. when
+    building an eval test case target). A query that simply appears anywhere
+    inside the id (e.g. "genesis:1:1" inside "kjv:genesis:1:1", "protrepticus:1"
+    inside "clemens:protrepticus:1") is a strong signal regardless of source —
+    checked ahead of a plain book/id prefix match and ordinary relevance
+    search, which only catch matches anchored at the very start."""
+    if not client.indices.exists(index=index_name(language_pack)):
+        return []
+
+    normalized = query.strip().lower()
+
+    contains_hits: list[dict] = []
+    if normalized:
+        contains_response = client.search(
+            index=index_name(language_pack),
+            body={"query": {"wildcard": {"id": {"value": f"*{normalized}*"}}}},
+            size=size,
+        )
+        contains_hits = [_hit_to_dict(hit) for hit in contains_response["hits"]["hits"]]
+
+    prefix_response = client.search(
+        index=index_name(language_pack),
+        body={
+            "query": {
+                "bool": {
+                    "should": [
+                        {"prefix": {"book": normalized}},
+                        {"prefix": {"id": normalized}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        },
+        size=size,
+    )
+    prefix_hits = [_hit_to_dict(hit) for hit in prefix_response["hits"]["hits"]]
+
+    relevance = search(client, language_pack, query, page_size=size)
+
+    seen_ids: set[str] = set()
+    merged: list[dict] = []
+    for hit in [*contains_hits, *prefix_hits, *relevance.results]:
+        if hit["id"] not in seen_ids:
+            seen_ids.add(hit["id"])
+            merged.append(hit)
+    return merged[:size]

@@ -109,19 +109,48 @@ def test_update_and_delete_own_test_case(client: TestClient, db_session: Session
 
     update_response = client.patch(
         f"/api/eval/test-cases/{created['id']}",
-        json={"content": "renamed", "language": "grc", "context": "some context", "tags": ["x"]},
+        json={
+            "content": "renamed",
+            "language": "grc",
+            "source": "Protrepticus, Clemens of Alexandria",
+            "context": "some context",
+            "tags": ["x"],
+        },
         headers=headers,
     )
     assert update_response.status_code == 200
     body = update_response.json()
     assert body["content"] == "renamed"
     assert body["language"] == "grc"
+    assert body["source"] == "Protrepticus, Clemens of Alexandria"
     assert body["context"] == "some context"
     assert body["tags"] == ["x"]
 
     delete_response = client.delete(f"/api/eval/test-cases/{created['id']}", headers=headers)
     assert delete_response.status_code == 204
     assert client.get(f"/api/eval/test-cases/{created['id']}", headers=headers).status_code == 404
+
+
+def test_create_and_update_reject_unknown_language(client: TestClient, db_session: Session) -> None:
+    user = _create_db_user(db_session, "helen")
+    headers = _bearer(user.id, ["run_experiments"])
+
+    create_response = client.post(
+        "/api/eval/test-cases",
+        json={"content": "q", "language": "not-a-real-language"},
+        headers=headers,
+    )
+    assert create_response.status_code == 422
+
+    created = client.post(
+        "/api/eval/test-cases", json={"content": "q", "language": "eng"}, headers=headers
+    ).json()
+    update_response = client.patch(
+        f"/api/eval/test-cases/{created['id']}",
+        json={"content": "q", "language": "not-a-real-language"},
+        headers=headers,
+    )
+    assert update_response.status_code == 422
 
 
 def test_add_list_update_delete_targets(client: TestClient, db_session: Session) -> None:

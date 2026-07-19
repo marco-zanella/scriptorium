@@ -304,6 +304,7 @@ export interface TestCaseOut {
   id: number
   content: string
   language: string
+  source: string | null
   context: string | null
   tags: string[]
   targets: TestCaseTargetOut[]
@@ -312,12 +313,18 @@ export interface TestCaseOut {
 export interface TestCaseInput {
   content: string
   language: string
+  source?: string | null
   context?: string | null
   tags?: string[]
 }
 
 export function listTestCases(): Promise<TestCaseOut[]> {
   return request<TestCaseOut[]>('/eval/test-cases')
+}
+
+export function contentSearch(language: string, query: string): Promise<SearchHit[]> {
+  const params = new URLSearchParams({ language, query })
+  return request<SearchHit[]>(`/eval/test-cases/content-search?${params.toString()}`)
 }
 
 export function createTestCase(body: TestCaseInput): Promise<TestCaseOut> {
