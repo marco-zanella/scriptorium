@@ -15,6 +15,7 @@ import {
   type TestCaseInput,
   type TestCaseOut,
 } from './api'
+import { RELEVANCE_LEVELS, relevanceLabel } from './relevance'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -417,17 +418,6 @@ function TagsEditor({ tags, onChange }: { tags: string[]; onChange: (tags: strin
       </div>
     </div>
   )
-}
-
-const RELEVANCE_LEVELS = [
-  { value: 0, label: 'Not relevant' },
-  { value: 1, label: 'Marginally relevant' },
-  { value: 2, label: 'Relevant' },
-  { value: 3, label: 'Highly relevant' },
-]
-
-function relevanceLabel(value: number): string {
-  return RELEVANCE_LEVELS.find((level) => level.value === value)?.label ?? String(value)
 }
 
 function describeHit(hit: SearchHit): string {

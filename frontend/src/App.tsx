@@ -5,6 +5,7 @@ import { EvalResultPage } from './EvalResultPage'
 import { EvalTestCasesPage } from './EvalTestCasesPage'
 import { EvalTestCollectionDetailPage } from './EvalTestCollectionDetailPage'
 import { EvalTestCollectionsPage } from './EvalTestCollectionsPage'
+import { EvalTestCollectionTestCasesPage } from './EvalTestCollectionTestCasesPage'
 import { Layout } from './Layout'
 import { LoginPage } from './LoginPage'
 import { RequireAuth, RequireRole } from './route-guards'
@@ -72,6 +73,14 @@ function App() {
               element={
                 <RequireRole role="run_experiments">
                   <EvalTestCollectionDetailPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="eval/collections/:id/test-cases"
+              element={
+                <RequireRole role="run_experiments">
+                  <EvalTestCollectionTestCasesPage />
                 </RequireRole>
               }
             />
