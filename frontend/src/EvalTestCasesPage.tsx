@@ -15,6 +15,7 @@ import {
   type TestCaseInput,
   type TestCaseOut,
 } from './api'
+import { describeHit } from './format-search-hit'
 import { RELEVANCE_LEVELS, relevanceLabel } from './relevance'
 import {
   AlertDialog,
@@ -418,13 +419,6 @@ function TagsEditor({ tags, onChange }: { tags: string[]; onChange: (tags: strin
       </div>
     </div>
   )
-}
-
-function describeHit(hit: SearchHit): string {
-  if (hit.book && hit.chapter && hit.verse) {
-    return `${hit.book} ${hit.chapter}:${hit.verse}`
-  }
-  return hit.source ?? hit.id
 }
 
 function TargetEditor({

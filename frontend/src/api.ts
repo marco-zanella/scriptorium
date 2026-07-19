@@ -481,6 +481,8 @@ export interface CaseMetricsOut {
 
 export interface ResultCollectionReportOut {
   id: number
+  test_collection_id: number
+  test_collection_name: string
   status: 'pending' | 'running' | 'completed' | 'failed'
   configuration_snapshot: { name: string; weights: SearchConfigurationWeights }
   books_snapshot: string[]
@@ -510,6 +512,8 @@ export function getResultCollectionReport(
 export interface ResultCaseDetailOut {
   id: number
   test_case_id: number
+  test_collection_id: number
+  test_collection_name: string
   results: SearchHit[]
   snapshot: {
     content: string
@@ -534,5 +538,30 @@ export function getResultCaseDetail(
   const query = params.toString()
   return request<ResultCaseDetailOut>(
     `/eval/result-collections/${resultCollectionId}/cases/${caseId}${query ? `?${query}` : ''}`,
+  )
+}
+
+export interface MetricSweepPointOut {
+  k: number
+  recall_at_k: number
+  precision_at_k: number
+  ndcg_at_k: number
+}
+
+export interface MetricSweepOut {
+  tau: number
+  mrr: number
+  points: MetricSweepPointOut[]
+}
+
+export function getMetricSweep(
+  resultCollectionId: number,
+  options: { tau?: number } = {},
+): Promise<MetricSweepOut> {
+  const params = new URLSearchParams()
+  if (options.tau !== undefined) params.set('tau', String(options.tau))
+  const query = params.toString()
+  return request<MetricSweepOut>(
+    `/eval/result-collections/${resultCollectionId}/metric-sweep${query ? `?${query}` : ''}`,
   )
 }

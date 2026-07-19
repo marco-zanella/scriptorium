@@ -4,11 +4,15 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import Principal, require_role
 from app.db.session import get_db
-from app.eval.metrics import evaluate_case
+from app.eval.metrics import aggregate, evaluate_case
 from app.eval.models import ResultCase, ResultCollection, TestCollection
 from app.eval.reporting import aggregate_result_cases, ranked_ids, target_relevance
 
 router = APIRouter(prefix="/api/eval/result-collections", tags=["eval-results"])
+
+# Matches the k bounds already enforced on the single-k report endpoint below.
+_SWEEP_K_MIN = 1
+_SWEEP_K_MAX = 50
 
 
 class CaseMetricsOut(BaseModel):
@@ -22,6 +26,8 @@ class CaseMetricsOut(BaseModel):
 
 class ResultCollectionReportOut(BaseModel):
     id: int
+    test_collection_id: int
+    test_collection_name: str
     status: str
     configuration_snapshot: dict
     books_snapshot: list[str]
@@ -38,12 +44,27 @@ class ResultCollectionReportOut(BaseModel):
 class ResultCaseDetailOut(BaseModel):
     id: int
     test_case_id: int
+    test_collection_id: int
+    test_collection_name: str
     results: list[dict]
     snapshot: dict
     recall_at_k: float
     precision_at_k: float
     reciprocal_rank: float
     ndcg_at_k: float
+
+
+class MetricSweepPointOut(BaseModel):
+    k: int
+    recall_at_k: float
+    precision_at_k: float
+    ndcg_at_k: float
+
+
+class MetricSweepOut(BaseModel):
+    tau: int
+    mrr: float
+    points: list[MetricSweepPointOut]
 
 
 def _get_visible_result_collection(
@@ -80,6 +101,8 @@ def get_result_collection_report(
 
     return ResultCollectionReportOut(
         id=result_collection.id,
+        test_collection_id=result_collection.test_collection_id,
+        test_collection_name=result_collection.test_collection.name,
         status=result_collection.status,
         configuration_snapshot=result_collection.configuration_snapshot,
         books_snapshot=result_collection.books_snapshot,
@@ -104,6 +127,36 @@ def get_result_collection_report(
     )
 
 
+@router.get("/{result_collection_id}/metric-sweep", response_model=MetricSweepOut)
+def get_metric_sweep(
+    result_collection_id: int,
+    tau: int = Query(1, ge=0, le=3),
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_role("run_experiments")),
+) -> MetricSweepOut:
+    result_collection = _get_visible_result_collection(db, result_collection_id, principal)
+    result_cases = (
+        db.query(ResultCase).filter(ResultCase.result_collection_id == result_collection.id).all()
+    )
+    cases_for_metrics = [(ranked_ids(rc), target_relevance(rc)) for rc in result_cases]
+
+    points = []
+    mrr = 0.0
+    for k in range(_SWEEP_K_MIN, _SWEEP_K_MAX + 1):
+        report = aggregate(cases_for_metrics, k, tau)
+        mrr = report["mrr"]  # invariant across k — reciprocal rank isn't capped by k
+        points.append(
+            MetricSweepPointOut(
+                k=k,
+                recall_at_k=report["recall_at_k"],
+                precision_at_k=report["precision_at_k"],
+                ndcg_at_k=report["ndcg_at_k"],
+            )
+        )
+
+    return MetricSweepOut(tau=tau, mrr=mrr, points=points)
+
+
 @router.get("/{result_collection_id}/cases/{case_id}", response_model=ResultCaseDetailOut)
 def get_result_case_detail(
     result_collection_id: int,
@@ -126,6 +179,8 @@ def get_result_case_detail(
     return ResultCaseDetailOut(
         id=result_case.id,
         test_case_id=result_case.test_case_id,
+        test_collection_id=result_collection.test_collection_id,
+        test_collection_name=result_collection.test_collection.name,
         results=result_case.results,
         snapshot=result_case.snapshot,
         recall_at_k=metrics["recall_at_k"],
