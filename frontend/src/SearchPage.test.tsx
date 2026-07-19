@@ -26,7 +26,7 @@ const LANGUAGES: LanguageOut[] = [
 const HYBRID_WEIGHTS = { text: 0.1, shingle: 0.1, trigram: 0.1, language: 0.5, semantic: 0.5 }
 const CONFIGURATIONS: SearchConfigurationOut[] = [
   {
-    id: null,
+    id: 1,
     name: 'hybrid',
     weights: { weights: HYBRID_WEIGHTS, variant_weights: HYBRID_WEIGHTS },
     is_preset: true,

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -7,6 +9,7 @@ from app.auth.models import User
 from app.auth.tokens import create_access_token
 from app.main import app
 from app.search.models import SearchConfiguration
+from app.search.service import FacetBucket
 
 SAMPLE_WEIGHTS = {
     "weights": {"text": 1.0, "shingle": 0.0, "trigram": 0.0, "language": 0.0, "semantic": 0.0},
@@ -222,6 +225,59 @@ def test_run_creates_pending_result_collection_with_snapshot(
         f"/api/eval/test-collections/{collection['id']}/result-collections", headers=headers
     )
     assert [r["id"] for r in history_response.json()] == [body["id"]]
+
+
+def test_test_case_count_reflects_membership(client: TestClient, db_session: Session) -> None:
+    user = _create_db_user(db_session, "mona")
+    headers = _bearer(user.id, ["run_experiments"])
+    config = _create_own_configuration(db_session, user.id, "monas-config")
+    collection = client.post(
+        "/api/eval/test-collections",
+        json={"name": "x", "search_configuration_id": config.id},
+        headers=headers,
+    ).json()
+    assert collection["test_case_count"] == 0
+
+    case = client.post(
+        "/api/eval/test-cases", json={"content": "q", "language": "eng"}, headers=headers
+    ).json()
+    client.post(
+        f"/api/eval/test-collections/{collection['id']}/test-cases/{case['id']}", headers=headers
+    )
+
+    list_response = client.get("/api/eval/test-collections", headers=headers)
+    listed = next(c for c in list_response.json() if c["id"] == collection["id"])
+    assert listed["test_case_count"] == 1
+
+
+def test_content_facets_merges_and_dedupes_across_language_packs(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    user = _create_db_user(db_session, "nadia")
+    headers = _bearer(user.id, ["run_experiments"])
+
+    fake_eng = SimpleNamespace(iso_code="eng")
+    fake_grc = SimpleNamespace(iso_code="grc")
+    monkeypatch.setattr(
+        eval_test_collections_module, "list_language_packs", lambda: [fake_eng, fake_grc]
+    )
+
+    def fake_browse_facets(_client, pack):
+        if pack.iso_code == "eng":
+            return {
+                "book": [FacetBucket(key="genesis", count=10), FacetBucket(key="exodus", count=5)],
+                "source": [FacetBucket(key="kjv", count=15)],
+            }
+        return {
+            "book": [FacetBucket(key="genesis", count=3)],
+            "source": [FacetBucket(key="rahlfs", count=3)],
+        }
+
+    monkeypatch.setattr(eval_test_collections_module, "browse_facets", fake_browse_facets)
+
+    response = client.get("/api/eval/test-collections/content-facets", headers=headers)
+    assert response.status_code == 200
+    assert response.json() == {"book": ["exodus", "genesis"], "source": ["kjv", "rahlfs"]}
 
 
 def test_delete_collection_requires_ownership(client: TestClient, db_session: Session) -> None:

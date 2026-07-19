@@ -376,6 +376,7 @@ export interface TestCollectionOut {
   search_configuration_id: number
   books: string[]
   sources: string[]
+  test_case_count: number
 }
 
 export interface TestCollectionInput {
@@ -388,6 +389,10 @@ export interface TestCollectionInput {
 
 export function listTestCollections(): Promise<TestCollectionOut[]> {
   return request<TestCollectionOut[]>('/eval/test-collections')
+}
+
+export function getCollectionContentFacets(): Promise<{ book: string[]; source: string[] }> {
+  return request<{ book: string[]; source: string[] }>('/eval/test-collections/content-facets')
 }
 
 export function createTestCollection(body: TestCollectionInput): Promise<TestCollectionOut> {

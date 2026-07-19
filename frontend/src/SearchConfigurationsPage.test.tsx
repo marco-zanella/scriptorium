@@ -23,7 +23,7 @@ const DEFAULT_BUCKET_WEIGHTS = { lexical: 0.5, semantic: 0.5 }
 const DEFAULT_COMBINER = { technique: 'z_score', combination: 'arithmetic_mean' }
 
 const HYBRID: SearchConfigurationOut = {
-  id: null,
+  id: 1,
   name: 'hybrid',
   weights: { weights: EMPTY_WEIGHTS, variant_weights: EMPTY_WEIGHTS },
   is_preset: true,

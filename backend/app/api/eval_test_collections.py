@@ -2,14 +2,17 @@ from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.eval_test_cases import TestCaseOut
 from app.auth.dependencies import Principal, require_role
 from app.db.session import get_db
 from app.eval.models import ResultCollection, TestCase, TestCollection
 from app.eval.runner import run_test_collection
+from app.registry import list_language_packs
+from app.search.client import get_client
 from app.search.models import SearchConfiguration
+from app.search.service import browse_facets
 
 router = APIRouter(prefix="/api/eval/test-collections", tags=["eval-test-collections"])
 
@@ -21,6 +24,7 @@ class TestCollectionOut(BaseModel):
     search_configuration_id: int
     books: list[str]
     sources: list[str]
+    test_case_count: int
 
     @classmethod
     def from_model(cls, collection: TestCollection) -> "TestCollectionOut":
@@ -31,6 +35,7 @@ class TestCollectionOut(BaseModel):
             search_configuration_id=collection.search_configuration_id,
             books=collection.books,
             sources=collection.sources,
+            test_case_count=len(collection.test_cases),
         )
 
 
@@ -102,7 +107,12 @@ def list_test_collections(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_role("run_experiments")),
 ) -> list[TestCollectionOut]:
-    collections = _visible_query(db, principal).order_by(TestCollection.id.desc()).all()
+    collections = (
+        _visible_query(db, principal)
+        .options(selectinload(TestCollection.test_cases))
+        .order_by(TestCollection.id.desc())
+        .all()
+    )
     return [TestCollectionOut.from_model(c) for c in collections]
 
 
@@ -125,6 +135,28 @@ def create_test_collection(
     db.add(collection)
     db.commit()
     return TestCollectionOut.from_model(collection)
+
+
+# Registered ahead of GET /{collection_id} — a static path below it would be
+# shadowed, since Starlette matches "content-facets" against {collection_id}
+# before type coercion.
+@router.get("/content-facets", response_model=dict[str, list[str]])
+def content_facets(
+    principal: Principal = Depends(require_role("run_experiments")),
+) -> dict[str, list[str]]:
+    """Book/source vocabulary for the collection form's assisted chip pickers.
+    A TestCollection's books/sources aren't scoped to one language the way a
+    search request is, so this merges browse_facets across every registered
+    language pack rather than reusing /api/search/{language}/facets (which
+    also requires use_search_engine, a role eval users may not hold)."""
+    client = get_client()
+    books: set[str] = set()
+    sources: set[str] = set()
+    for pack in list_language_packs():
+        facets = browse_facets(client, pack)
+        books.update(bucket.key for bucket in facets["book"])
+        sources.update(bucket.key for bucket in facets["source"])
+    return {"book": sorted(books), "source": sorted(sources)}
 
 
 @router.get("/{collection_id}", response_model=TestCollectionOut)

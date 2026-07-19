@@ -28,6 +28,7 @@ const COLLECTION: TestCollectionOut = {
   search_configuration_id: 5,
   books: [],
   sources: [],
+  test_case_count: 1,
 }
 
 const MEMBER: TestCaseOut = {
