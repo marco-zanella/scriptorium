@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import Principal, require_role
 from app.db.session import get_db
-from app.eval.metrics import aggregate, evaluate_case
+from app.eval.metrics import evaluate_case
 from app.eval.models import ResultCase, ResultCollection, TestCollection
+from app.eval.reporting import aggregate_result_cases, ranked_ids, target_relevance
 
 router = APIRouter(prefix="/api/eval/result-collections", tags=["eval-results"])
 
@@ -62,14 +63,6 @@ def _get_visible_result_collection(
     return result_collection
 
 
-def _ranked_ids(result_case: ResultCase) -> list[str]:
-    return [hit["id"] for hit in result_case.results]
-
-
-def _target_relevance(result_case: ResultCase) -> dict[str, int]:
-    return {t["target"]: t["relevance"] for t in result_case.snapshot["targets"]}
-
-
 @router.get("/{result_collection_id}", response_model=ResultCollectionReportOut)
 def get_result_collection_report(
     result_collection_id: int,
@@ -83,8 +76,7 @@ def get_result_collection_report(
         db.query(ResultCase).filter(ResultCase.result_collection_id == result_collection.id).all()
     )
 
-    cases_for_metrics = [(_ranked_ids(rc), _target_relevance(rc)) for rc in result_cases]
-    report = aggregate(cases_for_metrics, k, tau)
+    report = aggregate_result_cases(result_cases, k, tau)
 
     return ResultCollectionReportOut(
         id=result_collection.id,
@@ -130,7 +122,7 @@ def get_result_case_detail(
     if result_case is None:
         raise HTTPException(status_code=404, detail="Result case not found")
 
-    metrics = evaluate_case(_ranked_ids(result_case), _target_relevance(result_case), k, tau)
+    metrics = evaluate_case(ranked_ids(result_case), target_relevance(result_case), k, tau)
     return ResultCaseDetailOut(
         id=result_case.id,
         test_case_id=result_case.test_case_id,
@@ -141,3 +133,14 @@ def get_result_case_detail(
         reciprocal_rank=metrics["reciprocal_rank"],
         ndcg_at_k=metrics["ndcg_at_k"],
     )
+
+
+@router.delete("/{result_collection_id}", status_code=204)
+def delete_result_collection(
+    result_collection_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_role("run_experiments")),
+) -> None:
+    result_collection = _get_visible_result_collection(db, result_collection_id, principal)
+    db.delete(result_collection)
+    db.commit()

@@ -3,7 +3,7 @@ import { AdminPage } from './AdminPage'
 import { DashboardPage } from './DashboardPage'
 import { EvalResultPage } from './EvalResultPage'
 import { EvalTestCasesPage } from './EvalTestCasesPage'
-import { EvalTestCollectionDetailPage } from './EvalTestCollectionDetailPage'
+import { EvalTestCollectionResultsPage } from './EvalTestCollectionResultsPage'
 import { EvalTestCollectionsPage } from './EvalTestCollectionsPage'
 import { EvalTestCollectionTestCasesPage } from './EvalTestCollectionTestCasesPage'
 import { Layout } from './Layout'
@@ -69,18 +69,18 @@ function App() {
               }
             />
             <Route
-              path="eval/collections/:id"
-              element={
-                <RequireRole role="run_experiments">
-                  <EvalTestCollectionDetailPage />
-                </RequireRole>
-              }
-            />
-            <Route
               path="eval/collections/:id/test-cases"
               element={
                 <RequireRole role="run_experiments">
                   <EvalTestCollectionTestCasesPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="eval/collections/:id/results"
+              element={
+                <RequireRole role="run_experiments">
+                  <EvalTestCollectionResultsPage />
                 </RequireRole>
               }
             />

@@ -448,6 +448,10 @@ export interface ResultCollectionOut {
   started_at: string | null
   completed_at: string | null
   error: string | null
+  recall_at_k: number | null
+  precision_at_k: number | null
+  mrr: number | null
+  ndcg_at_k: number | null
 }
 
 export function runTestCollection(collectionId: number): Promise<ResultCollectionOut> {
@@ -460,6 +464,10 @@ export function listResultCollections(collectionId: number): Promise<ResultColle
   return request<ResultCollectionOut[]>(
     `/eval/test-collections/${collectionId}/result-collections`,
   )
+}
+
+export function deleteResultCollection(resultCollectionId: number): Promise<void> {
+  return request<void>(`/eval/result-collections/${resultCollectionId}`, { method: 'DELETE' })
 }
 
 export interface CaseMetricsOut {

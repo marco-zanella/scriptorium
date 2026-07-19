@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.eval_test_cases import TestCaseOut
 from app.auth.dependencies import Principal, require_role
 from app.db.session import get_db
-from app.eval.models import ResultCollection, TestCase, TestCollection
+from app.eval.models import ResultCase, ResultCollection, TestCase, TestCollection
+from app.eval.reporting import aggregate_result_cases
 from app.eval.runner import run_test_collection
 from app.registry import list_language_packs
 from app.search.client import get_client
@@ -15,6 +16,11 @@ from app.search.models import SearchConfiguration
 from app.search.service import browse_facets
 
 router = APIRouter(prefix="/api/eval/test-collections", tags=["eval-test-collections"])
+
+# Fixed preview metrics shown in the run list — matches the eval report page's
+# own defaults, not user-configurable here (that page has k/tau controls).
+_RESULT_LIST_K = 10
+_RESULT_LIST_TAU = 1
 
 
 class TestCollectionOut(BaseModel):
@@ -56,9 +62,15 @@ class ResultCollectionOut(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     error: str | None
+    recall_at_k: float | None
+    precision_at_k: float | None
+    mrr: float | None
+    ndcg_at_k: float | None
 
     @classmethod
-    def from_model(cls, result_collection: ResultCollection) -> "ResultCollectionOut":
+    def from_model(
+        cls, result_collection: ResultCollection, metrics: dict | None = None
+    ) -> "ResultCollectionOut":
         return cls(
             id=result_collection.id,
             status=result_collection.status,
@@ -68,6 +80,10 @@ class ResultCollectionOut(BaseModel):
             started_at=result_collection.started_at,
             completed_at=result_collection.completed_at,
             error=result_collection.error,
+            recall_at_k=metrics["recall_at_k"] if metrics else None,
+            precision_at_k=metrics["precision_at_k"] if metrics else None,
+            mrr=metrics["mrr"] if metrics else None,
+            ndcg_at_k=metrics["ndcg_at_k"] if metrics else None,
         )
 
 
@@ -279,4 +295,23 @@ def list_result_collections(
         .order_by(ResultCollection.id.desc())
         .all()
     )
-    return [ResultCollectionOut.from_model(r) for r in runs]
+
+    completed_ids = [r.id for r in runs if r.status == "completed"]
+    cases_by_run: dict[int, list[ResultCase]] = {run_id: [] for run_id in completed_ids}
+    if completed_ids:
+        for case in (
+            db.query(ResultCase)
+            .filter(ResultCase.result_collection_id.in_(completed_ids))
+            .all()
+        ):
+            cases_by_run[case.result_collection_id].append(case)
+
+    return [
+        ResultCollectionOut.from_model(
+            r,
+            metrics=aggregate_result_cases(cases_by_run[r.id], _RESULT_LIST_K, _RESULT_LIST_TAU)
+            if r.id in cases_by_run
+            else None,
+        )
+        for r in runs
+    ]
