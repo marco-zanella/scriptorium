@@ -33,7 +33,14 @@ import {
 } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { type Bar, BarsSvg, ExportRow, type LineSeries, LineSvg } from '@/components/svg-charts'
+import {
+  type Bar,
+  BarsSvg,
+  type CsvData,
+  ExportRow,
+  type LineSeries,
+  LineSvg,
+} from '@/components/svg-charts'
 
 type PerCaseMetric = 'recall_at_k' | 'precision_at_k' | 'reciprocal_rank' | 'ndcg_at_k'
 type SortKey = 'result_case_id' | PerCaseMetric
@@ -210,11 +217,37 @@ export function EvalResultPage() {
     : []
   const curveSeries = allCurveSeries.filter((s) => visibleCurveMetrics.has(s.key))
 
+  const curveCsv: CsvData | undefined = sweep
+    ? {
+        headers: ['k', ...curveSeries.map((s) => s.label)],
+        rows: sweep.points.map((p) => [
+          p.k,
+          ...curveSeries.map((s) => {
+            switch (s.key) {
+              case 'recall':
+                return p.recall_at_k
+              case 'precision':
+                return p.precision_at_k
+              case 'ndcg':
+                return p.ndcg_at_k
+              case 'mrr':
+                return sweep.mrr
+            }
+          }),
+        ]),
+      }
+    : undefined
+
   const distributionLabel = PER_CASE_METRICS.find((m) => m.key === distributionMetric)?.label
   const distributionBars: Bar[] = casesInIdOrder.map((c) => ({
     value: c[distributionMetric],
+    label: `#${c.result_case_id}`,
     tooltip: `#${c.result_case_id} ${caseLabel(c)}: ${c[distributionMetric].toFixed(3)}`,
   }))
+  const distributionCsv: CsvData = {
+    headers: ['result_case_id', 'test_case', distributionLabel ?? distributionMetric],
+    rows: casesInIdOrder.map((c) => [c.result_case_id, caseLabel(c), c[distributionMetric]]),
+  }
 
   return (
     <div className="space-y-6">
@@ -332,7 +365,7 @@ export function EvalResultPage() {
                 <ExportRow
                   svgRef={curveRef}
                   filenamePrefix={`metrics-vs-k-run-${report.id}`}
-                  dimensions={{ width: 380, height: 200 }}
+                  csv={curveCsv}
                 />
               </div>
             )}
@@ -344,7 +377,7 @@ export function EvalResultPage() {
               <BarsSvg
                 svgRef={distributionRef}
                 bars={distributionBars}
-                showLabels={false}
+                showLabels
                 ariaLabel={`Bar chart of ${distributionLabel} for each test case, ordered by case id`}
                 width={380}
                 height={200}
@@ -364,7 +397,7 @@ export function EvalResultPage() {
               <ExportRow
                 svgRef={distributionRef}
                 filenamePrefix={`per-case-${distributionMetric}-run-${report.id}`}
-                dimensions={{ width: 380, height: 200 }}
+                csv={distributionCsv}
               />
             </div>
           </div>
