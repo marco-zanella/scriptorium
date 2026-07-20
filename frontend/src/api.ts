@@ -574,3 +574,71 @@ export function getMetricSweep(
     `/eval/result-collections/${resultCollectionId}/metric-sweep${query ? `?${query}` : ''}`,
   )
 }
+
+export interface MetricComparisonOut {
+  baseline: number
+  candidate: number
+  delta: number
+  wilcoxon_statistic: number | null
+  wilcoxon_p_value: number | null
+  n: number
+}
+
+export interface McNemarOut {
+  n_baseline_only: number
+  n_candidate_only: number
+  statistic: number
+  p_value: number
+}
+
+export interface CaseMetricValuesOut {
+  recall_at_k: number
+  precision_at_k: number
+  reciprocal_rank: number
+  ndcg_at_k: number
+}
+
+export interface CaseComparisonOut {
+  test_case_id: number
+  content: string
+  baseline: CaseMetricValuesOut
+  candidate: CaseMetricValuesOut
+}
+
+export interface RunComparisonOut {
+  candidate_id: number
+  candidate_configuration_name: string
+  overlap_case_count: number
+  recall_at_k: MetricComparisonOut
+  precision_at_k: MetricComparisonOut
+  reciprocal_rank: MetricComparisonOut
+  ndcg_at_k: MetricComparisonOut
+  found_at_k: McNemarOut
+  cases: CaseComparisonOut[]
+}
+
+export interface ComparisonOut {
+  baseline_id: number
+  baseline_configuration_name: string
+  test_collection_id: number
+  test_collection_name: string
+  k: number
+  tau: number
+  comparisons: RunComparisonOut[]
+}
+
+export function getComparison(
+  baselineId: number,
+  candidateIds: number[],
+  options: { k?: number; tau?: number } = {},
+): Promise<ComparisonOut> {
+  const params = new URLSearchParams()
+  for (const candidateId of candidateIds) {
+    params.append('candidate_id', String(candidateId))
+  }
+  if (options.k !== undefined) params.set('k', String(options.k))
+  if (options.tau !== undefined) params.set('tau', String(options.tau))
+  return request<ComparisonOut>(
+    `/eval/result-collections/${baselineId}/compare?${params.toString()}`,
+  )
+}

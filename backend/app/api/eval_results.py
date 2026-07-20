@@ -5,9 +5,14 @@ from sqlalchemy.orm import Session
 from app.api.search import ScoreStats
 from app.auth.dependencies import Principal, require_role
 from app.db.session import get_db
-from app.eval.metrics import aggregate, evaluate_case
+from app.eval.metrics import aggregate, evaluate_case, mcnemar_exact, wilcoxon_signed_rank
 from app.eval.models import ResultCase, ResultCollection, TestCollection
-from app.eval.reporting import aggregate_result_cases, ranked_ids, target_relevance
+from app.eval.reporting import (
+    aggregate_result_cases,
+    paired_case_metrics,
+    ranked_ids,
+    target_relevance,
+)
 
 router = APIRouter(prefix="/api/eval/result-collections", tags=["eval-results"])
 
@@ -67,6 +72,58 @@ class MetricSweepOut(BaseModel):
     tau: int
     mrr: float
     points: list[MetricSweepPointOut]
+
+
+class MetricComparisonOut(BaseModel):
+    baseline: float
+    candidate: float
+    delta: float
+    wilcoxon_statistic: float | None
+    wilcoxon_p_value: float | None
+    n: int
+
+
+class McNemarOut(BaseModel):
+    n_baseline_only: int
+    n_candidate_only: int
+    statistic: int
+    p_value: float
+
+
+class CaseMetricValuesOut(BaseModel):
+    recall_at_k: float
+    precision_at_k: float
+    reciprocal_rank: float
+    ndcg_at_k: float
+
+
+class CaseComparisonOut(BaseModel):
+    test_case_id: int
+    content: str
+    baseline: CaseMetricValuesOut
+    candidate: CaseMetricValuesOut
+
+
+class RunComparisonOut(BaseModel):
+    candidate_id: int
+    candidate_configuration_name: str
+    overlap_case_count: int
+    recall_at_k: MetricComparisonOut
+    precision_at_k: MetricComparisonOut
+    reciprocal_rank: MetricComparisonOut
+    ndcg_at_k: MetricComparisonOut
+    found_at_k: McNemarOut
+    cases: list[CaseComparisonOut]
+
+
+class ComparisonOut(BaseModel):
+    baseline_id: int
+    baseline_configuration_name: str
+    test_collection_id: int
+    test_collection_name: str
+    k: int
+    tau: int
+    comparisons: list[RunComparisonOut]
 
 
 def _get_visible_result_collection(
@@ -190,6 +247,107 @@ def get_result_case_detail(
         precision_at_k=metrics["precision_at_k"],
         reciprocal_rank=metrics["reciprocal_rank"],
         ndcg_at_k=metrics["ndcg_at_k"],
+    )
+
+
+_COMPARISON_METRIC_KEYS = ("recall_at_k", "precision_at_k", "reciprocal_rank", "ndcg_at_k")
+
+
+@router.get("/{baseline_id}/compare", response_model=ComparisonOut)
+def compare_result_collections(
+    baseline_id: int,
+    candidate_id: list[int] = Query(...),
+    k: int = Query(10, ge=1, le=50),
+    tau: int = Query(1, ge=0, le=3),
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_role("run_experiments")),
+) -> ComparisonOut:
+    baseline = _get_visible_result_collection(db, baseline_id, principal)
+    if baseline.status != "completed":
+        raise HTTPException(status_code=400, detail="Baseline result collection is not completed")
+    if baseline_id in candidate_id:
+        raise HTTPException(status_code=400, detail="Baseline cannot also be a candidate")
+
+    candidates = [_get_visible_result_collection(db, cid, principal) for cid in candidate_id]
+    for candidate in candidates:
+        if candidate.test_collection_id != baseline.test_collection_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Candidate result collection belongs to a different test collection",
+            )
+        if candidate.status != "completed":
+            raise HTTPException(
+                status_code=400, detail="Candidate result collection is not completed"
+            )
+
+    baseline_cases = (
+        db.query(ResultCase).filter(ResultCase.result_collection_id == baseline.id).all()
+    )
+
+    comparisons = []
+    for candidate in candidates:
+        candidate_cases = (
+            db.query(ResultCase).filter(ResultCase.result_collection_id == candidate.id).all()
+        )
+        paired = paired_case_metrics(baseline_cases, candidate_cases, k, tau)
+
+        metric_blocks = {}
+        for key in _COMPARISON_METRIC_KEYS:
+            baseline_values = [baseline_metrics[key] for _, _, baseline_metrics, _ in paired]
+            candidate_values = [candidate_metrics[key] for _, _, _, candidate_metrics in paired]
+            baseline_mean = sum(baseline_values) / len(baseline_values) if paired else 0.0
+            candidate_mean = sum(candidate_values) / len(candidate_values) if paired else 0.0
+            wilcoxon_result = wilcoxon_signed_rank(baseline_values, candidate_values)
+            metric_blocks[key] = MetricComparisonOut(
+                baseline=baseline_mean,
+                candidate=candidate_mean,
+                delta=candidate_mean - baseline_mean,
+                wilcoxon_statistic=wilcoxon_result["statistic"],
+                wilcoxon_p_value=wilcoxon_result["p_value"],
+                n=wilcoxon_result["n"],
+            )
+
+        n_baseline_only = sum(
+            1
+            for _, _, baseline_metrics, candidate_metrics in paired
+            if baseline_metrics["recall_at_k"] > 0 and not candidate_metrics["recall_at_k"] > 0
+        )
+        n_candidate_only = sum(
+            1
+            for _, _, baseline_metrics, candidate_metrics in paired
+            if candidate_metrics["recall_at_k"] > 0 and not baseline_metrics["recall_at_k"] > 0
+        )
+
+        comparisons.append(
+            RunComparisonOut(
+                candidate_id=candidate.id,
+                candidate_configuration_name=candidate.configuration_snapshot["name"],
+                overlap_case_count=len(paired),
+                recall_at_k=metric_blocks["recall_at_k"],
+                precision_at_k=metric_blocks["precision_at_k"],
+                reciprocal_rank=metric_blocks["reciprocal_rank"],
+                ndcg_at_k=metric_blocks["ndcg_at_k"],
+                found_at_k=McNemarOut(**mcnemar_exact(n_baseline_only, n_candidate_only)),
+                cases=[
+                    CaseComparisonOut(
+                        test_case_id=baseline_rc.test_case_id,
+                        content=baseline_rc.snapshot["content"],
+                        baseline=CaseMetricValuesOut(**baseline_metrics),
+                        candidate=CaseMetricValuesOut(**candidate_metrics),
+                    )
+                    for baseline_rc, _, baseline_metrics, candidate_metrics in paired
+                ],
+            )
+        )
+
+    return ComparisonOut(
+        baseline_id=baseline.id,
+        baseline_configuration_name=baseline.configuration_snapshot["name"],
+        test_collection_id=baseline.test_collection_id,
+        test_collection_name=baseline.test_collection.name,
+        k=k,
+        tau=tau,
+        comparisons=comparisons,
     )
 
 

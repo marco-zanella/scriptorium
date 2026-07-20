@@ -11,6 +11,8 @@ result to all three, rather than each function re-implementing thresholding.
 
 import math
 
+from scipy.stats import wilcoxon
+
 
 def recall_at_k(ranked_ids: list[str], relevant_ids: set[str], k: int) -> float:
     if not relevant_ids:
@@ -58,6 +60,43 @@ def evaluate_case(
         "reciprocal_rank": reciprocal_rank(ranked_ids, relevant_ids),
         "ndcg_at_k": ndcg_at_k(ranked_ids, target_relevance, k),
     }
+
+
+def mcnemar_exact(n_baseline_only: int, n_candidate_only: int) -> dict:
+    """Exact two-sided McNemar's test (binomial sign test) on the discordant
+    pairs of a paired binary found/not-found comparison. Concordant pairs
+    (both found, both missed) carry no information about a *difference*
+    between the two runs and are deliberately not passed in here.
+    """
+    n = n_baseline_only + n_candidate_only
+    if n == 0:
+        p_value = 1.0
+    else:
+        smaller = min(n_baseline_only, n_candidate_only)
+        tail = sum(math.comb(n, i) for i in range(smaller + 1)) / 2**n
+        p_value = min(1.0, 2 * tail)
+    return {
+        "n_baseline_only": n_baseline_only,
+        "n_candidate_only": n_candidate_only,
+        "statistic": min(n_baseline_only, n_candidate_only),
+        "p_value": p_value,
+    }
+
+
+def wilcoxon_signed_rank(baseline_values: list[float], candidate_values: list[float]) -> dict:
+    """Paired Wilcoxon signed-rank test on `candidate - baseline`. Ties
+    (equal values on both sides) are dropped before ranking (scipy's
+    `zero_method="wilcox"`) — if every pair ties (or there are no pairs at
+    all), there's nothing to test: checked explicitly rather than relying on
+    scipy's behavior in that case, which varies by version (older scipy
+    raises `ValueError`; newer scipy divides 0/0 into a `RuntimeWarning` plus
+    a not-really-meaningful result).
+    """
+    non_zero = sum(1 for b, c in zip(baseline_values, candidate_values, strict=True) if b != c)
+    if non_zero == 0:
+        return {"statistic": None, "p_value": None, "n": 0}
+    result = wilcoxon(candidate_values, baseline_values, zero_method="wilcox", method="auto")
+    return {"statistic": float(result.statistic), "p_value": float(result.pvalue), "n": non_zero}
 
 
 def aggregate(cases: list[tuple[list[str], dict[str, int]]], k: int, tau: int) -> dict:
