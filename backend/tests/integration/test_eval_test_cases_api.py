@@ -286,3 +286,102 @@ def test_rejects_duplicate_target_and_out_of_range_relevance(
         headers=headers,
     )
     assert out_of_range.status_code == 422
+
+
+def test_import_requires_run_experiments_role(client: TestClient, db_session: Session) -> None:
+    user = _create_db_user(db_session, "mallory")
+    response = client.post(
+        "/api/eval/test-cases/import",
+        json=[{"content": "q", "language": "eng"}],
+        headers=_bearer(user.id, ["use_rag"]),
+    )
+    assert response.status_code == 403
+
+
+def test_import_creates_good_rows_and_reports_bad_row(
+    client: TestClient, db_session: Session
+) -> None:
+    user = _create_db_user(db_session, "nadia")
+    headers = _bearer(user.id, ["run_experiments"])
+
+    response = client.post(
+        "/api/eval/test-cases/import",
+        json=[
+            {
+                "content": "who created the world",
+                "language": "eng",
+                "tags": ["genesis"],
+                "targets": [{"target": "kjv:genesis:1:1", "relevance": 3}],
+            },
+            {"content": "bad row", "language": "not-a-real-language"},
+            {"content": "another good row", "language": "grc"},
+        ],
+        headers=headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    assert len(body["created"]) == 2
+    assert body["created"][0]["content"] == "who created the world"
+    first_targets = body["created"][0]["targets"]
+    assert [{"target": t["target"], "relevance": t["relevance"]} for t in first_targets] == [
+        {"target": "kjv:genesis:1:1", "relevance": 3}
+    ]
+    assert body["created"][1]["content"] == "another good row"
+
+    assert len(body["errors"]) == 1
+    assert body["errors"][0]["index"] == 1
+    assert "not-a-real-language" in body["errors"][0]["error"]
+
+    list_response = client.get("/api/eval/test-cases", headers=headers)
+    assert {c["content"] for c in list_response.json()} == {
+        "who created the world",
+        "another good row",
+    }
+
+
+def test_import_rejects_row_with_duplicate_target(client: TestClient, db_session: Session) -> None:
+    user = _create_db_user(db_session, "oscar")
+    headers = _bearer(user.id, ["run_experiments"])
+
+    response = client.post(
+        "/api/eval/test-cases/import",
+        json=[
+            {
+                "content": "q",
+                "language": "eng",
+                "targets": [
+                    {"target": "kjv:genesis:1:1", "relevance": 1},
+                    {"target": "kjv:genesis:1:1", "relevance": 2},
+                ],
+            }
+        ],
+        headers=headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created"] == []
+    assert len(body["errors"]) == 1
+    assert body["errors"][0]["index"] == 0
+
+
+def test_import_reports_schema_error_without_failing_whole_batch(
+    client: TestClient, db_session: Session
+) -> None:
+    user = _create_db_user(db_session, "peggy")
+    headers = _bearer(user.id, ["run_experiments"])
+
+    response = client.post(
+        "/api/eval/test-cases/import",
+        json=[
+            {"content": "good row", "language": "eng"},
+            {"language": "eng"},  # missing required "content"
+        ],
+        headers=headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["created"]) == 1
+    assert body["created"][0]["content"] == "good row"
+    assert len(body["errors"]) == 1
+    assert body["errors"][0]["index"] == 1

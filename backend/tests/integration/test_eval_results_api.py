@@ -1,3 +1,7 @@
+import io
+import json
+import zipfile
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -474,6 +478,86 @@ def test_compare_requires_visibility_of_every_candidate(
     response = client.get(
         f"/api/eval/result-collections/{baseline.id}/compare",
         params={"candidate_id": candidate.id},
+        headers=_bearer(other.id, ["run_experiments"]),
+    )
+    assert response.status_code == 404
+
+
+def test_export_returns_zip_with_manifest_and_case_csv(
+    client: TestClient, db_session: Session
+) -> None:
+    user = _create_db_user(db_session, "nolan")
+    headers = _bearer(user.id, ["run_experiments"])
+    result_collection = _seed_result_collection_with_one_case(
+        db_session,
+        user,
+        ranked_ids=["a", "b", "c"],
+        targets=[{"target": "c", "relevance": 3}],
+    )
+    report = client.get(
+        f"/api/eval/result-collections/{result_collection.id}",
+        params={"k": 3, "tau": 1},
+        headers=headers,
+    ).json()
+
+    response = client.get(
+        f"/api/eval/result-collections/{result_collection.id}/export",
+        params={"k": 3, "tau": 1},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    expected_filename = f"result-collection-{result_collection.id}-export.zip"
+    assert expected_filename in response.headers["content-disposition"]
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+        names = zf.namelist()
+        assert "manifest.json" in names
+        case_csv_names = [n for n in names if n != "manifest.json"]
+        assert len(case_csv_names) == 1
+
+        manifest = json.loads(zf.read("manifest.json"))
+        assert manifest["result_collection_id"] == result_collection.id
+        assert manifest["test_collection_id"] == result_collection.test_collection_id
+        assert manifest["status"] == "completed"
+        assert manifest["k"] == 3
+        assert manifest["tau"] == 1
+        # round-trip check: the export's own aggregate metrics must match the
+        # already-verified report endpoint's numbers for this same run.
+        assert manifest["metrics"]["recall_at_k"] == pytest.approx(report["recall_at_k"])
+        assert manifest["metrics"]["precision_at_k"] == pytest.approx(report["precision_at_k"])
+        assert manifest["metrics"]["mrr"] == pytest.approx(report["mrr"])
+        assert manifest["metrics"]["ndcg_at_k"] == pytest.approx(report["ndcg_at_k"])
+
+        rows = zf.read(case_csv_names[0]).decode().splitlines()
+        assert rows[0] == "rank,id,type,book,chapter,verse,source,score,is_target,relevance"
+        assert rows[1].startswith("1,a,")
+        assert rows[3].split(",")[-1] == "3"  # rank 3 ("c") is the matched target, relevance 3
+
+
+def test_export_rejects_non_completed_result_collection(
+    client: TestClient, db_session: Session
+) -> None:
+    user = _create_db_user(db_session, "olivia")
+    headers = _bearer(user.id, ["run_experiments"])
+    collection, cases = _seed_shared_test_collection(db_session, user)
+    pending = _seed_result_collection_for_cases(
+        db_session, collection, {cases["a"]: ["a"]}, status="pending"
+    )
+
+    response = client.get(f"/api/eval/result-collections/{pending.id}/export", headers=headers)
+    assert response.status_code == 400
+
+
+def test_export_hidden_from_other_users(client: TestClient, db_session: Session) -> None:
+    owner = _create_db_user(db_session, "peter")
+    other = _create_db_user(db_session, "quinn")
+    result_collection = _seed_result_collection_with_one_case(
+        db_session, owner, ranked_ids=["a"], targets=[{"target": "a", "relevance": 3}]
+    )
+
+    response = client.get(
+        f"/api/eval/result-collections/{result_collection.id}/export",
         headers=_bearer(other.id, ["run_experiments"]),
     )
     assert response.status_code == 404

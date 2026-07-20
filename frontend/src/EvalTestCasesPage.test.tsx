@@ -17,6 +17,7 @@ vi.mock('./api', async () => {
     addTestCaseTarget: vi.fn(),
     deleteTestCaseTarget: vi.fn(),
     contentSearch: vi.fn(),
+    bulkImportTestCases: vi.fn(),
   }
 })
 
@@ -54,6 +55,7 @@ describe('EvalTestCasesPage', () => {
     vi.mocked(api.deleteTestCase).mockReset()
     vi.mocked(api.addTestCaseTarget).mockReset()
     vi.mocked(api.deleteTestCaseTarget).mockReset()
+    vi.mocked(api.bulkImportTestCases).mockReset()
   })
 
   it('lists test cases with their language display name and target count', async () => {
@@ -178,5 +180,47 @@ describe('EvalTestCasesPage', () => {
     if (!originalRow) throw new Error('row not found')
     await user.click(within(originalRow).getByRole('button', { name: 'Remove' }))
     await waitFor(() => expect(api.deleteTestCaseTarget).toHaveBeenCalledWith(1, 10))
+  })
+
+  it('imports a JSON file and reports created rows plus per-row errors', async () => {
+    vi.mocked(api.bulkImportTestCases).mockResolvedValue({
+      created: [
+        { id: 3, content: 'good row', language: 'eng', source: null, context: null, tags: [], targets: [] },
+      ],
+      errors: [{ index: 1, error: 'Unknown language: not-a-real-language' }],
+    })
+
+    renderPage()
+    await screen.findByText('who created the world')
+
+    const user = userEvent.setup()
+    const file = new File(
+      [JSON.stringify([{ content: 'good row', language: 'eng' }, { content: 'bad row', language: 'x' }])],
+      'test-cases.json',
+      { type: 'application/json' },
+    )
+    await user.upload(screen.getByLabelText('Import test cases'), file)
+
+    await waitFor(() => expect(api.bulkImportTestCases).toHaveBeenCalled())
+    expect(await screen.findByText('Imported 1 test case.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Row 2: Unknown language: not-a-real-language'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows an inline error when the imported file is not valid JSON', async () => {
+    renderPage()
+    await screen.findByText('who created the world')
+
+    const user = userEvent.setup()
+    const file = new File(['not json'], 'test-cases.json', { type: 'application/json' })
+    await user.upload(screen.getByLabelText('Import test cases'), file)
+
+    expect(
+      await screen.findByText(
+        'Failed to import test cases — check the file is a JSON array of test cases',
+      ),
+    ).toBeInTheDocument()
+    expect(api.bulkImportTestCases).not.toHaveBeenCalled()
   })
 })

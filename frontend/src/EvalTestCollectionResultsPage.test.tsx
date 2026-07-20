@@ -13,6 +13,7 @@ vi.mock('./api', async () => {
     listResultCollections: vi.fn(),
     runTestCollection: vi.fn(),
     deleteResultCollection: vi.fn(),
+    exportResultCollection: vi.fn(),
   }
 })
 
@@ -74,6 +75,7 @@ describe('EvalTestCollectionResultsPage', () => {
     vi.mocked(api.listResultCollections).mockReset().mockResolvedValue([COMPLETED_RUN, FAILED_RUN])
     vi.mocked(api.runTestCollection).mockReset()
     vi.mocked(api.deleteResultCollection).mockReset()
+    vi.mocked(api.exportResultCollection).mockReset()
   })
 
   afterEach(() => {
@@ -143,6 +145,21 @@ describe('EvalTestCollectionResultsPage', () => {
 
     await waitFor(() => expect(api.deleteResultCollection).toHaveBeenCalledWith(3))
     await waitFor(() => expect(screen.queryByText('completed')).not.toBeInTheDocument())
+  })
+
+  it('disables Export for a non-completed run and exports a completed one', async () => {
+    renderPage()
+    await screen.findByRole('heading', { name: 'genesis eval' })
+
+    const user = userEvent.setup()
+    const completedRow = screen.getByText('completed').closest('tr')
+    const failedRow = screen.getByText('failed').closest('tr')
+    if (!completedRow || !failedRow) throw new Error('row not found')
+
+    expect(within(failedRow).getByRole('button', { name: 'Export' })).toBeDisabled()
+
+    await user.click(within(completedRow).getByRole('button', { name: 'Export' }))
+    await waitFor(() => expect(api.exportResultCollection).toHaveBeenCalledWith(3))
   })
 
   it('starts a run and polls until it completes', async () => {
