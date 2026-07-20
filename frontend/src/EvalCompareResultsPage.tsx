@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { ArrowDownIcon, ArrowUpIcon } from 'lucide-react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
   ApiError,
@@ -28,16 +29,17 @@ import {
 } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { type Bar, BarsSvg } from '@/components/svg-charts'
 
 type PerCaseMetric = 'recall_at_k' | 'precision_at_k' | 'reciprocal_rank' | 'ndcg_at_k'
 
-const PER_CASE_METRICS: { key: PerCaseMetric; label: string }[] = [
+const METRIC_ROWS: { key: PerCaseMetric; label: string }[] = [
   { key: 'recall_at_k', label: 'Recall@k' },
   { key: 'precision_at_k', label: 'Precision@k' },
-  { key: 'reciprocal_rank', label: 'Reciprocal rank' },
+  { key: 'reciprocal_rank', label: 'Reciprocal rank (MRR)' },
   { key: 'ndcg_at_k', label: 'nDCG@k' },
 ]
+
+const SIGNIFICANCE_THRESHOLD = 0.05
 
 function formatMetric(value: number): string {
   return value.toFixed(3)
@@ -55,10 +57,55 @@ function formatPValue(value: number | null): string {
   return value < 0.001 ? '<0.001' : value.toFixed(3)
 }
 
-function deltaClassName(value: number): string {
-  if (value > 0) return 'text-emerald-600 dark:text-emerald-400'
-  if (value < 0) return 'text-red-600 dark:text-red-400'
-  return 'text-muted-foreground'
+// Plain discrete Tailwind shades — not the `bg-x/10` opacity-mix (`color-mix()`)
+// form used elsewhere, to rule out that mechanism as a variable: it's simpler,
+// universally-supported CSS, and keeps the positive/negative treatments
+// perfectly symmetric so any rendering gap between them is obvious immediately.
+// Text shade is specifically -700, not -800: checked the generated
+// oklch chroma for both (this app's own established floor, from the earlier
+// chart-color fix, is ~0.10 chroma before a hue stops reading as color at
+// all) — text-emerald-800 is oklch(43.2% 0.095 ...), *below* that floor,
+// while text-emerald-700 is oklch(50.8% 0.118 ...), safely above it, and
+// closely lightness-matched to text-red-700's oklch(50.5% 0.213 ...).
+const POSITIVE_CHIP = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+const NEGATIVE_CHIP = 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+
+/** A filled, tinted pill rather than plain colored text — a subtle text-color
+ * change on small tabular numbers is easy to miss at a glance (confirmed:
+ * the initial plain-text version wasn't visible enough). */
+function DeltaChip({ value }: { value: number }) {
+  if (value === 0) {
+    return (
+      <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+        {formatDelta(value)}
+      </span>
+    )
+  }
+  const positive = value > 0
+  const Icon = positive ? ArrowUpIcon : ArrowDownIcon
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium tabular-nums ${positive ? POSITIVE_CHIP : NEGATIVE_CHIP}`}
+    >
+      <Icon className="size-3" />
+      {formatDelta(value)}
+    </span>
+  )
+}
+
+function PValueLabel({ value }: { value: number | null }) {
+  const significant = value !== null && value < SIGNIFICANCE_THRESHOLD
+  return (
+    <span
+      className={
+        significant
+          ? `rounded-md px-1.5 py-0.5 font-medium ${POSITIVE_CHIP}`
+          : 'text-muted-foreground'
+      }
+    >
+      p={formatPValue(value)}
+    </span>
+  )
 }
 
 function parseRunIds(searchParams: URLSearchParams): { baseline: number | null; runIds: number[] } {
@@ -73,114 +120,174 @@ function parseRunIds(searchParams: URLSearchParams): { baseline: number | null; 
   return { baseline, runIds: [...new Set(runIds)] }
 }
 
-function CandidateComparisonCard({
-  comparison,
-  distributionMetric,
-}: {
-  comparison: RunComparisonOut
-  distributionMetric: PerCaseMetric
-}) {
-  const chartRef = useRef<SVGSVGElement>(null)
-  const deltaBars: Bar[] = PER_CASE_METRICS.map((m) => ({
-    value: comparison[m.key].delta,
-    label: m.label.replace('@k', ''),
-    tooltip: `${m.label}: ${formatDelta(comparison[m.key].delta)} (p=${formatPValue(comparison[m.key].wilcoxon_p_value)})`,
-  }))
+function candidateLabel(comparison: RunComparisonOut): string {
+  return `Run #${comparison.candidate_id} — ${comparison.candidate_configuration_name}`
+}
 
-  const sortedCases = useMemo(
-    () =>
-      [...comparison.cases].sort(
-        (a, b) =>
-          Math.abs(b.candidate[distributionMetric] - b.baseline[distributionMetric]) -
-          Math.abs(a.candidate[distributionMetric] - a.baseline[distributionMetric]),
-      ),
-    [comparison.cases, distributionMetric],
+/** rows = metrics (+ a found-in-top-k row), columns = baseline + one per candidate —
+ * mirrors how experimentation dashboards (e.g. GrowthBook) lay out variation-vs-control
+ * results, so every metric/candidate combination is scannable at a glance. */
+function SummaryTable({ comparisons }: { comparisons: RunComparisonOut[] }) {
+  return (
+    <div className="overflow-x-auto rounded-md border border-border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Metric</TableHead>
+            <TableHead className="text-right">Baseline</TableHead>
+            {comparisons.map((c) => (
+              <TableHead key={c.candidate_id} className="text-right">
+                {candidateLabel(c)}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {METRIC_ROWS.map((metric) => (
+            <TableRow key={metric.key}>
+              <TableCell>{metric.label}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatMetric(comparisons[0][metric.key].baseline)}
+              </TableCell>
+              {comparisons.map((c) => {
+                const cell = c[metric.key]
+                return (
+                  <TableCell key={c.candidate_id} className="text-right">
+                    <div className="mb-1 text-right tabular-nums font-medium">
+                      {formatMetric(cell.candidate)}
+                    </div>
+                    <div className="flex w-full items-center justify-end gap-1.5 text-xs">
+                      <DeltaChip value={cell.delta} />
+                      <PValueLabel value={cell.wilcoxon_p_value} />
+                    </div>
+                  </TableCell>
+                )
+              })}
+            </TableRow>
+          ))}
+          <TableRow>
+            <TableCell>Found@k (McNemar)</TableCell>
+            <TableCell className="text-right text-muted-foreground">—</TableCell>
+            {comparisons.map((c) => (
+              <TableCell key={c.candidate_id} className="text-right">
+                <div className="flex w-full items-center justify-end gap-1.5 text-xs">
+                  <span
+                    className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-medium tabular-nums ${
+                      c.found_at_k.n_candidate_only > 0 ? POSITIVE_CHIP : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    <ArrowUpIcon className="size-3" />+{c.found_at_k.n_candidate_only}
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-medium tabular-nums ${
+                      c.found_at_k.n_baseline_only > 0 ? NEGATIVE_CHIP : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    <ArrowDownIcon className="size-3" />-{c.found_at_k.n_baseline_only}
+                  </span>
+                </div>
+                <div className="mt-1 text-right text-xs">
+                  <PValueLabel value={c.found_at_k.p_value} />
+                </div>
+              </TableCell>
+            ))}
+          </TableRow>
+        </TableBody>
+      </Table>
+    </div>
   )
+}
+
+interface CaseRow {
+  test_case_id: number
+  content: string
+  baseline: number
+  perCandidate: Map<number, number>
+  maxAbsDelta: number
+}
+
+function buildCaseRows(comparisons: RunComparisonOut[], metric: PerCaseMetric): CaseRow[] {
+  const rows = new Map<number, CaseRow>()
+  for (const comparison of comparisons) {
+    for (const c of comparison.cases) {
+      let row = rows.get(c.test_case_id)
+      if (!row) {
+        row = {
+          test_case_id: c.test_case_id,
+          content: c.content,
+          baseline: c.baseline[metric],
+          perCandidate: new Map(),
+          maxAbsDelta: 0,
+        }
+        rows.set(c.test_case_id, row)
+      }
+      const delta = c.candidate[metric] - c.baseline[metric]
+      row.perCandidate.set(comparison.candidate_id, c.candidate[metric])
+      row.maxAbsDelta = Math.max(row.maxAbsDelta, Math.abs(delta))
+    }
+  }
+  return [...rows.values()].sort((a, b) => b.maxAbsDelta - a.maxAbsDelta)
+}
+
+function PerCaseTable({
+  comparisons,
+  metric,
+}: {
+  comparisons: RunComparisonOut[]
+  metric: PerCaseMetric
+}) {
+  const rows = useMemo(() => buildCaseRows(comparisons, metric), [comparisons, metric])
+
+  if (rows.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No test cases shared between the baseline and any candidate run.
+      </p>
+    )
+  }
 
   return (
-    <div className="space-y-4 rounded-md border border-border p-4">
-      <div>
-        <h2 className="font-heading text-lg font-medium">
-          Run #{comparison.candidate_id} — {comparison.candidate_configuration_name}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {comparison.overlap_case_count} case{comparison.overlap_case_count === 1 ? '' : 's'}{' '}
-          shared with the baseline
-        </p>
-      </div>
-
-      {comparison.overlap_case_count === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No test cases in common with the baseline run — nothing to compare.
-        </p>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <dl className="grid grid-cols-2 gap-3 rounded-md bg-background/60 py-3 text-center">
-              {PER_CASE_METRICS.map((m) => (
-                <div key={m.key}>
-                  <dt className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                    {m.label}
-                  </dt>
-                  <dd
-                    className={`font-medium tabular-nums ${deltaClassName(comparison[m.key].delta)}`}
-                  >
-                    {formatDelta(comparison[m.key].delta)}
-                  </dd>
-                  <dd className="text-[10px] text-muted-foreground">
-                    p={formatPValue(comparison[m.key].wilcoxon_p_value)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            <BarsSvg
-              bars={deltaBars}
-              showLabels
-              ariaLabel={`Bar chart of metric deltas (candidate minus baseline) for run #${comparison.candidate_id}`}
-              width={280}
-              height={160}
-              svgRef={chartRef}
-            />
-          </div>
-
-          <p className="text-sm text-muted-foreground">
-            Found-in-top-k (McNemar's exact test): {comparison.found_at_k.n_candidate_only} case
-            {comparison.found_at_k.n_candidate_only === 1 ? '' : 's'} newly found,{' '}
-            {comparison.found_at_k.n_baseline_only} case
-            {comparison.found_at_k.n_baseline_only === 1 ? '' : 's'} newly missed (p=
-            {formatPValue(comparison.found_at_k.p_value)})
-          </p>
-
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Test case</TableHead>
-                <TableHead>Baseline</TableHead>
-                <TableHead>Candidate</TableHead>
-                <TableHead>Δ</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sortedCases.map((c) => (
-                <TableRow key={c.test_case_id}>
-                  <TableCell>{c.content}</TableCell>
-                  <TableCell className="tabular-nums">
-                    {formatMetric(c.baseline[distributionMetric])}
+    <div className="overflow-x-auto rounded-md border border-border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Test case</TableHead>
+            <TableHead className="text-right">Baseline</TableHead>
+            {comparisons.map((c) => (
+              <TableHead key={c.candidate_id} className="text-right">
+                {candidateLabel(c)}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.test_case_id}>
+              <TableCell>{row.content}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatMetric(row.baseline)}</TableCell>
+              {comparisons.map((c) => {
+                const value = row.perCandidate.get(c.candidate_id)
+                if (value === undefined) {
+                  return (
+                    <TableCell key={c.candidate_id} className="text-right text-muted-foreground">
+                      —
+                    </TableCell>
+                  )
+                }
+                const delta = value - row.baseline
+                return (
+                  <TableCell key={c.candidate_id} className="text-right">
+                    <div className="mb-1 text-right tabular-nums">{formatMetric(value)}</div>
+                    <div className="flex w-full justify-end">
+                      <DeltaChip value={delta} />
+                    </div>
                   </TableCell>
-                  <TableCell className="tabular-nums">
-                    {formatMetric(c.candidate[distributionMetric])}
-                  </TableCell>
-                  <TableCell
-                    className={`tabular-nums ${deltaClassName(c.candidate[distributionMetric] - c.baseline[distributionMetric])}`}
-                  >
-                    {formatDelta(c.candidate[distributionMetric] - c.baseline[distributionMetric])}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </>
-      )}
+                )
+              })}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   )
 }
@@ -229,6 +336,8 @@ export function EvalCompareResultsPage() {
     return <p className="text-sm text-destructive">Select at least two runs to compare.</p>
   }
 
+  const comparisonsWithOverlap = comparison?.comparisons.filter((c) => c.overlap_case_count > 0) ?? []
+
   return (
     <div className="space-y-6">
       <Breadcrumb>
@@ -239,9 +348,11 @@ export function EvalCompareResultsPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink
-              render={<Link to={`/eval/collections/${collectionId}/results`}>
-                {collection?.name ?? `Collection #${collectionId}`}
-              </Link>}
+              render={
+                <Link to={`/eval/collections/${collectionId}/results`}>
+                  {collection?.name ?? `Collection #${collectionId}`}
+                </Link>
+              }
             />
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -299,32 +410,40 @@ export function EvalCompareResultsPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-1">
-        <span className="self-center pr-2 text-xs text-muted-foreground">Per-case metric:</span>
-        {PER_CASE_METRICS.map((m) => (
-          <Button
-            key={m.key}
-            size="sm"
-            variant={distributionMetric === m.key ? 'default' : 'outline'}
-            onClick={() => setDistributionMetric(m.key)}
-          >
-            {m.label}
-          </Button>
-        ))}
-      </div>
-
       {comparison && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <p className="text-sm text-muted-foreground">
             Baseline: Run #{comparison.baseline_id} — {comparison.baseline_configuration_name}
           </p>
-          {comparison.comparisons.map((c) => (
-            <CandidateComparisonCard
-              key={c.candidate_id}
-              comparison={c}
-              distributionMetric={distributionMetric}
-            />
-          ))}
+
+          {comparisonsWithOverlap.length > 0 ? (
+            <SummaryTable comparisons={comparisonsWithOverlap} />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No candidate run shares any test case with the baseline — nothing to compare.
+            </p>
+          )}
+
+          {comparisonsWithOverlap.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-1">
+                <span className="self-center pr-2 text-xs text-muted-foreground">
+                  Per-case metric:
+                </span>
+                {METRIC_ROWS.map((m) => (
+                  <Button
+                    key={m.key}
+                    size="sm"
+                    variant={distributionMetric === m.key ? 'default' : 'outline'}
+                    onClick={() => setDistributionMetric(m.key)}
+                  >
+                    {m.label}
+                  </Button>
+                ))}
+              </div>
+              <PerCaseTable comparisons={comparisonsWithOverlap} metric={distributionMetric} />
+            </div>
+          )}
         </div>
       )}
     </div>

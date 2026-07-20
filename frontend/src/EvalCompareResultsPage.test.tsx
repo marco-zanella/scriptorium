@@ -105,21 +105,34 @@ describe('EvalCompareResultsPage', () => {
     vi.mocked(api.getTestCollection).mockReset().mockResolvedValue(COLLECTION)
   })
 
-  it('shows the baseline and a per-candidate delta card', async () => {
+  it('shows the baseline label and a summary comparison table row per metric', async () => {
     renderPage()
 
     expect(await screen.findByRole('heading', { name: 'Compare runs' })).toBeInTheDocument()
     expect(screen.getByText('Baseline: Run #10 — baseline-cfg')).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'Run #20 — candidate-cfg' }),
+      screen.getAllByRole('columnheader', { name: 'Run #20 — candidate-cfg' })[0],
     ).toBeInTheDocument()
 
-    expect(screen.getByText('+0.250')).toBeInTheDocument() // recall delta
-    expect(screen.getByText('+0.500')).toBeInTheDocument() // ndcg delta
+    // "Recall@k"/"nDCG@k" also label the per-case metric toggle buttons below —
+    // the summary table's row is rendered first, so it's the first match.
+    const recallRow = screen.getAllByText('Recall@k')[0].closest('tr')
+    if (!recallRow) throw new Error('row not found')
+    expect(within(recallRow).getByText('0.500')).toBeInTheDocument() // baseline column
+    expect(within(recallRow).getByText('0.750')).toBeInTheDocument() // candidate value
+    expect(within(recallRow).getByText('+0.250')).toBeInTheDocument() // delta
 
-    expect(
-      screen.getByText(/1 case newly found, 0 cases newly missed \(p=1\.000\)/),
-    ).toBeInTheDocument()
+    const ndcgRow = screen.getAllByText('nDCG@k')[0].closest('tr')
+    if (!ndcgRow) throw new Error('row not found')
+    expect(within(ndcgRow).getByText('+0.500')).toBeInTheDocument()
+
+    const foundRow = screen.getByText('Found@k (McNemar)').closest('tr')
+    if (!foundRow) throw new Error('row not found')
+    // gained/lost counts each render as "<icon>+1"/"<icon>-0" spans (icon is an
+    // inline svg, so match on the span's full text content rather than exact text)
+    expect(within(foundRow).getByText((_, node) => node?.textContent === '+1')).toBeInTheDocument()
+    expect(within(foundRow).getByText((_, node) => node?.textContent === '-0')).toBeInTheDocument()
+    expect(within(foundRow).getByText('p=1.000')).toBeInTheDocument()
   })
 
   it('shows the per-case table with baseline/candidate/delta for the selected metric', async () => {
@@ -129,9 +142,9 @@ describe('EvalCompareResultsPage', () => {
     // default distribution metric is nDCG@k
     const worldRow = screen.getByText('who created the world').closest('tr')
     if (!worldRow) throw new Error('row not found')
-    expect(within(worldRow).getByText('0.000')).toBeInTheDocument()
-    expect(within(worldRow).getByText('1.000')).toBeInTheDocument()
-    expect(within(worldRow).getByText('+1.000')).toBeInTheDocument()
+    expect(within(worldRow).getByText('0.000')).toBeInTheDocument() // baseline
+    expect(within(worldRow).getByText('1.000')).toBeInTheDocument() // candidate value
+    expect(within(worldRow).getByText('+1.000')).toBeInTheDocument() // delta
   })
 
   it('switches the per-case metric shown in the table', async () => {
