@@ -300,9 +300,7 @@ def list_result_collections(
     cases_by_run: dict[int, list[ResultCase]] = {run_id: [] for run_id in completed_ids}
     if completed_ids:
         for case in (
-            db.query(ResultCase)
-            .filter(ResultCase.result_collection_id.in_(completed_ids))
-            .all()
+            db.query(ResultCase).filter(ResultCase.result_collection_id.in_(completed_ids)).all()
         ):
             cases_by_run[case.result_collection_id].append(case)
 
