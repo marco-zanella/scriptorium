@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.search import ScoreStats
 from app.auth.dependencies import Principal, require_role
 from app.db.session import get_db
+from app.eval.export import build_export_zip
 from app.eval.metrics import aggregate, evaluate_case, mcnemar_exact, wilcoxon_signed_rank
 from app.eval.models import ResultCase, ResultCollection, TestCollection
 from app.eval.reporting import (
@@ -348,6 +349,35 @@ def compare_result_collections(
         k=k,
         tau=tau,
         comparisons=comparisons,
+    )
+
+
+@router.get("/{result_collection_id}/export")
+def export_result_collection(
+    result_collection_id: int,
+    k: int = Query(10, ge=1, le=50),
+    tau: int = Query(1, ge=0, le=3),
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_role("run_experiments")),
+) -> Response:
+    result_collection = _get_visible_result_collection(db, result_collection_id, principal)
+    if result_collection.status != "completed":
+        raise HTTPException(status_code=400, detail="Result collection is not completed")
+
+    result_cases = (
+        db.query(ResultCase).filter(ResultCase.result_collection_id == result_collection.id).all()
+    )
+    content = build_export_zip(
+        result_collection, result_cases, result_collection.test_collection.name, k, tau
+    )
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="result-collection-{result_collection.id}-export.zip"'
+            )
+        },
     )
 
 

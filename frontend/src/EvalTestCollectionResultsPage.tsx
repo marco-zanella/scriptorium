@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
   deleteResultCollection,
+  exportResultCollection,
   getTestCollection,
   listResultCollections,
   runTestCollection,
@@ -101,6 +102,15 @@ export function EvalTestCollectionResultsPage() {
       next.delete(resultCollectionId)
       return next
     })
+  }
+
+  async function handleExport(resultCollectionId: number) {
+    setError(null)
+    try {
+      await exportResultCollection(resultCollectionId)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to export run')
+    }
   }
 
   function handleToggleSelected(runId: number) {
@@ -223,6 +233,14 @@ export function EvalTestCollectionResultsPage() {
                     render={<Link to={`/eval/results/${run.id}`} />}
                   >
                     View
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={run.status !== 'completed'}
+                    onClick={() => handleExport(run.id)}
+                  >
+                    Export
                   </Button>
                   <AlertDialog>
                     <AlertDialogTrigger

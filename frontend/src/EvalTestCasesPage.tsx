@@ -1,8 +1,17 @@
-import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useState } from 'react'
+import {
+  type ChangeEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { XIcon } from 'lucide-react'
 import {
   ApiError,
   addTestCaseTarget,
+  bulkImportTestCases,
   contentSearch,
   createTestCase,
   deleteTestCase,
@@ -12,6 +21,7 @@ import {
   updateTestCase,
   type LanguageOut,
   type SearchHit,
+  type TestCaseImportRowError,
   type TestCaseInput,
   type TestCaseOut,
 } from './api'
@@ -73,6 +83,11 @@ export function EvalTestCasesPage() {
   const [search, setSearch] = useState('')
   const [languageFilter, setLanguageFilter] = useState('')
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set())
+  const [importSummary, setImportSummary] = useState<{
+    created: number
+    errors: TestCaseImportRowError[]
+  } | null>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const tagsAnchor = useComboboxAnchor()
 
   const allTags = useMemo(
@@ -109,26 +124,72 @@ export function EvalTestCasesPage() {
     await load()
   }
 
+  async function handleImport(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setError(null)
+    setImportSummary(null)
+    try {
+      const parsed = JSON.parse(await file.text())
+      if (!Array.isArray(parsed)) throw new Error('not an array')
+      const result = await bulkImportTestCases(parsed)
+      setImportSummary({ created: result.created.length, errors: result.errors })
+      await load()
+    } catch {
+      setError('Failed to import test cases — check the file is a JSON array of test cases')
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <h1 className="font-heading text-xl leading-snug font-medium">Test cases</h1>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger render={<Button>New test case</Button>} />
-          <DialogContent className="sm:max-w-lg">
-            <TestCaseForm
-              languages={languages}
-              onSubmit={async (body) => {
-                await createTestCase(body)
-                setCreateOpen(false)
-                await load()
-              }}
-            />
-          </DialogContent>
-        </Dialog>
+        <div className="flex items-center gap-2">
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json"
+            aria-label="Import test cases"
+            className="hidden"
+            onChange={handleImport}
+          />
+          <Button variant="outline" onClick={() => importInputRef.current?.click()}>
+            Import
+          </Button>
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger render={<Button>New test case</Button>} />
+            <DialogContent className="sm:max-w-lg">
+              <TestCaseForm
+                languages={languages}
+                onSubmit={async (body) => {
+                  await createTestCase(body)
+                  setCreateOpen(false)
+                  await load()
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
+      {importSummary && (
+        <div className="text-sm">
+          <p>
+            Imported {importSummary.created} test case{importSummary.created === 1 ? '' : 's'}.
+          </p>
+          {importSummary.errors.length > 0 && (
+            <ul className="mt-1 list-inside list-disc text-destructive">
+              {importSummary.errors.map((rowError) => (
+                <li key={rowError.index}>
+                  Row {rowError.index + 1}: {rowError.error}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <Input

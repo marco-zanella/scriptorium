@@ -344,6 +344,23 @@ export function deleteTestCase(id: number): Promise<void> {
   return request<void>(`/eval/test-cases/${id}`, { method: 'DELETE' })
 }
 
+export interface TestCaseImportRowError {
+  index: number
+  error: string
+}
+
+export interface TestCaseImportResult {
+  created: TestCaseOut[]
+  errors: TestCaseImportRowError[]
+}
+
+export function bulkImportTestCases(items: unknown[]): Promise<TestCaseImportResult> {
+  return request<TestCaseImportResult>('/eval/test-cases/import', {
+    method: 'POST',
+    body: JSON.stringify(items),
+  })
+}
+
 export function addTestCaseTarget(
   caseId: number,
   target: string,
@@ -470,6 +487,27 @@ export function listResultCollections(collectionId: number): Promise<ResultColle
 
 export function deleteResultCollection(resultCollectionId: number): Promise<void> {
   return request<void>(`/eval/result-collections/${resultCollectionId}`, { method: 'DELETE' })
+}
+
+// Bypasses request() — it always calls response.json(), which can't handle
+// this endpoint's binary ZIP body. Triggers a browser download directly,
+// same Blob+<a download> pattern as components/svg-charts.tsx/downloadBlob.
+export async function exportResultCollection(resultCollectionId: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/eval/result-collections/${resultCollectionId}/export`, {
+    credentials: 'include',
+  })
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new ApiError(response.status, body.detail ?? 'Request failed')
+  }
+
+  const blob = await response.blob()
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = `result-collection-${resultCollectionId}-export.zip`
+  link.click()
+  URL.revokeObjectURL(link.href)
 }
 
 export interface CaseMetricsOut {

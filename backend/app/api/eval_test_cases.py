@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from app.api.search import SearchHit
@@ -58,6 +58,30 @@ class TestCaseCreate(BaseModel):
     tags: list[str] = []
 
 
+class TestCaseImportTarget(BaseModel):
+    target: str
+    relevance: int = Field(ge=0, le=3)
+
+
+class TestCaseImportItem(BaseModel):
+    content: str
+    language: str
+    source: str | None = None
+    context: str | None = None
+    tags: list[str] = []
+    targets: list[TestCaseImportTarget] = []
+
+
+class TestCaseImportRowError(BaseModel):
+    index: int
+    error: str
+
+
+class TestCaseImportResult(BaseModel):
+    created: list[TestCaseOut]
+    errors: list[TestCaseImportRowError]
+
+
 def _visible_query(db: Session, principal: Principal):
     query = db.query(TestCase)
     if not principal.is_superuser:
@@ -106,6 +130,57 @@ def create_test_case(
     db.add(case)
     db.commit()
     return TestCaseOut.from_model(case)
+
+
+@router.post("/import", response_model=TestCaseImportResult)
+def import_test_cases(
+    body: list[dict],
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_role("run_experiments")),
+) -> TestCaseImportResult:
+    """Bulk-creates test cases from a JSON array. Always inserts new rows (no
+    upsert/dedup, no external key). `body` is intentionally untyped (`list[dict]`,
+    not `list[TestCaseImportItem]`) so one malformed row is caught and reported
+    per-row below, rather than failing FastAPI's whole-request validation and
+    rejecting every row in the batch over a single bad one."""
+    created: list[TestCaseOut] = []
+    errors: list[TestCaseImportRowError] = []
+
+    for index, raw in enumerate(body):
+        try:
+            item = TestCaseImportItem.model_validate(raw)
+            get_language_pack(item.language)
+            target_names = [t.target for t in item.targets]
+            if len(target_names) != len(set(target_names)):
+                raise ValueError("Duplicate target within test case")
+        except ValidationError as exc:
+            errors.append(TestCaseImportRowError(index=index, error=str(exc)))
+            continue
+        except UnknownLanguageError:
+            error = f"Unknown language: {raw.get('language')}"
+            errors.append(TestCaseImportRowError(index=index, error=error))
+            continue
+        except ValueError as exc:
+            errors.append(TestCaseImportRowError(index=index, error=str(exc)))
+            continue
+
+        case = TestCase(
+            owner_id=principal.user_id,
+            content=item.content,
+            language=item.language,
+            source=item.source,
+            context=item.context,
+            tags=item.tags,
+        )
+        case.targets = [
+            TestCaseTarget(target=t.target, relevance=t.relevance) for t in item.targets
+        ]
+        db.add(case)
+        db.flush()
+        created.append(TestCaseOut.from_model(case))
+
+    db.commit()
+    return TestCaseImportResult(created=created, errors=errors)
 
 
 # Registered ahead of GET /{case_id} — a static path below it would be shadowed,
