@@ -41,7 +41,11 @@ jobs:
         run: >-
           rsync -az --delete --exclude '.git' --exclude '.env' --exclude 'frontend/node_modules'
           -e "ssh -F $HOME/.ssh/config" ./ target:${{ vars.DEPLOY_PATH }}/
-      - name: Build and start containers
-        run: ssh -F ~/.ssh/config target "cd ${{ vars.DEPLOY_PATH }} && docker compose up -d --build"
+      - name: Build api image
+        run: ssh -F ~/.ssh/config target "cd ${{ vars.DEPLOY_PATH }} && docker compose build api"
       - name: Run migrations
-        run: ssh -F ~/.ssh/config target "cd ${{ vars.DEPLOY_PATH }} && docker compose exec -T api alembic upgrade head"
+        run: >-
+          ssh -F ~/.ssh/config target "cd ${{ vars.DEPLOY_PATH }} &&
+          docker compose run --rm -T api alembic upgrade head"
+      - name: Start containers
+        run: ssh -F ~/.ssh/config target "cd ${{ vars.DEPLOY_PATH }} && docker compose up -d"
