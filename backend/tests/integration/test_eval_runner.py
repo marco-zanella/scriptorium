@@ -92,7 +92,14 @@ def test_run_test_collection_creates_result_case_and_marks_completed(
 
     fake_results = [{"id": "eng:genesis:1:1", "type": "verse", "score": 1.0}]
     fake_score_stats = ScoreStats(
-        count=1, min=1.0, max=1.0, avg=1.0, std_deviation=0.0, percentiles={"50.0": 1.0}
+        count=1,
+        min=1.0,
+        max=1.0,
+        avg=1.0,
+        std_deviation=0.0,
+        percentiles={"50.0": 1.0},
+        gap=0.0,
+        confidence=0.0,
     )
 
     def fake_search(*args, **kwargs):
@@ -133,6 +140,8 @@ def test_run_test_collection_creates_result_case_and_marks_completed(
         "avg": 1.0,
         "std_deviation": 0.0,
         "percentiles": {"50.0": 1.0},
+        "gap": 0.0,
+        "confidence": 0.0,
     }
 
 

@@ -18,6 +18,8 @@ const STAT_TILES = [
   { key: 'max', label: 'Max' },
   { key: 'std_deviation', label: 'σ' },
   { key: 'count', label: 'n' },
+  { key: 'gap', label: 'Gap' },
+  { key: 'confidence', label: 'Conf.' },
 ] as const
 
 function ordinal(n: number): string {
@@ -90,7 +92,7 @@ export function ScoreDistributionPanel({
         ))}
       </div>
 
-      <dl className="grid grid-cols-5 gap-1 rounded-md bg-background/60 py-2 text-center">
+      <dl className="grid grid-cols-4 gap-1 rounded-md bg-background/60 py-2 text-center">
         {STAT_TILES.map(({ key, label }) => (
           <div key={key}>
             <dt className="text-[10px] tracking-wide text-muted-foreground uppercase">{label}</dt>

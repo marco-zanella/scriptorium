@@ -237,6 +237,8 @@ describe('SearchPage', () => {
         avg: 0.5,
         std_deviation: 0.2,
         percentiles: { '50.0': 0.5 },
+        gap: 0.3,
+        confidence: 0.4,
       },
     })
 

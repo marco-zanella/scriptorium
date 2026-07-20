@@ -87,6 +87,8 @@ const DETAIL: ResultCaseDetailOut = {
     avg: 1.5,
     std_deviation: 0.5,
     percentiles: { '0': 1.1, '50': 1.5, '100': 2.1 },
+    gap: 0.2,
+    confidence: 0.4,
   },
   recall_at_k: 1,
   precision_at_k: 0.2,

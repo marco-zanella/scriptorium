@@ -201,6 +201,8 @@ export interface ScoreStats {
   avg: number
   std_deviation: number
   percentiles: Record<string, number>
+  gap: number
+  confidence: number
 }
 
 export interface SearchResponse {

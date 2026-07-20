@@ -231,24 +231,6 @@ def build_hybrid_body(
     }
 
 
-SCORE_PERCENTILES = [1, 5, 25, 50, 75, 95, 99]
-
-
-def build_score_stats_aggregations() -> dict:
-    """Opt-in score-distribution aggregations, attached to the *same* request as
-    the actual hits (not the separate facets request below) — this describes the
-    exact result set being returned, so there's no risk of it describing a
-    different candidate population. Real cost (a Painless script per matching
-    document), so only requested when the frontend's score-distribution panel is
-    open."""
-    return {
-        "score_stats": {"extended_stats": {"script": {"source": "_score"}}},
-        "score_percentiles": {
-            "percentiles": {"script": {"source": "_score"}, "percents": SCORE_PERCENTILES}
-        },
-    }
-
-
 def _facet_aggregation(field: str, books: list[str] | None, sources: list[str] | None) -> dict:
     """Wraps a terms aggregation in a filter aggregation reapplying every OTHER
     active book/source filter except this facet's own field — lets users

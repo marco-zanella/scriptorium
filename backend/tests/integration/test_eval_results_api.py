@@ -204,6 +204,8 @@ def test_case_detail_includes_score_stats_when_present(
             "avg": 1.0,
             "std_deviation": 0.4,
             "percentiles": {"50.0": 1.0},
+            "gap": 0.3,
+            "confidence": 0.6,
         },
     )
     report = client.get(
@@ -223,6 +225,8 @@ def test_case_detail_includes_score_stats_when_present(
         "avg": 1.0,
         "std_deviation": 0.4,
         "percentiles": {"50.0": 1.0},
+        "gap": 0.3,
+        "confidence": 0.6,
     }
 
 

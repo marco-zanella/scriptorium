@@ -1,3 +1,4 @@
+import statistics
 from dataclasses import dataclass, field
 from functools import lru_cache
 
@@ -14,8 +15,17 @@ from app.search.query import (
     DEFAULT_WEIGHTS,
     build_facets_body,
     build_hybrid_body,
-    build_score_stats_aggregations,
 )
+
+SCORE_PERCENTILES = [1, 5, 25, 50, 75, 95, 99]
+
+# Score-distribution stats describe a fixed top-K window, independent of
+# whatever page_size the caller happens to be displaying — matching how
+# post-retrieval query-performance-prediction methods (NQC, WIG) are defined
+# in the IR literature: over a moderate, fixed top-of-ranking window, not the
+# full match population (which for a lenient hybrid query can be nearly the
+# whole corpus) and not whatever a UI happens to paginate by.
+STATS_TOP_K = 100
 
 
 @dataclass
@@ -32,6 +42,12 @@ class ScoreStats:
     avg: float
     std_deviation: float
     percentiles: dict[str, float]
+    # rank-1 minus rank-2 score — the plainest "how far ahead is the leader" signal.
+    gap: float
+    # Query-performance-prediction-style "is the system committing to a winner or
+    # lost" signal, adapted from NQC (Shtok, Kurland, Shtok, Bendersky, Raiber 2012)
+    # — see _confidence for why it's computed on normalized rather than raw scores.
+    confidence: float
 
 
 @dataclass
@@ -52,18 +68,62 @@ def _buckets(aggregations: dict, name: str) -> list[FacetBucket]:
     ]
 
 
-def _score_stats(aggregations: dict) -> ScoreStats | None:
-    stats = aggregations.get("score_stats")
-    percentiles = aggregations.get("score_percentiles")
-    if stats is None or percentiles is None:
+def _percentile(sorted_values: list[float], p: float) -> float:
+    """Linear interpolation between closest ranks — the conventional definition
+    (matches numpy's default method), reimplemented directly since a single
+    percentile-over-a-small-list computation doesn't justify a numpy dependency."""
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    rank = (p / 100) * (len(sorted_values) - 1)
+    lower = int(rank)
+    upper = min(lower + 1, len(sorted_values) - 1)
+    return sorted_values[lower] + (sorted_values[upper] - sorted_values[lower]) * (rank - lower)
+
+
+def _confidence(sorted_scores: list[float]) -> float:
+    """Adapted from NQC (Shtok et al., 2012): the dispersion of the top-k scores
+    relative to their central tendency, as a proxy for whether the ranking is
+    'committing' to a clear winner (spread out, one or few ahead of the pack) or
+    looks flat/undecided (scores clustered together). The textbook formula is
+    std/mean of the raw scores — not usable as-is here, since this app's
+    z_score combiner can produce negative or near-zero-mean scores, which would
+    make a raw ratio meaningless (or even flip sign). Computed on min-max
+    normalized scores instead, which are always non-negative by construction."""
+    score_range = sorted_scores[-1] - sorted_scores[0]
+    if score_range == 0:
+        return 0.0
+    normalized = [(s - sorted_scores[0]) / score_range for s in sorted_scores]
+    mean_norm = statistics.fmean(normalized)
+    if mean_norm == 0:
+        return 0.0
+    return statistics.pstdev(normalized) / mean_norm
+
+
+def _score_stats(results: list[dict]) -> ScoreStats | None:
+    """Computed from a fixed top-STATS_TOP_K window of the returned hits' own
+    (already-normalized) scores, not an OpenSearch aggregation over the full
+    matching population — a hybrid query's normalization-processor only
+    rewrites the returned hits' `_score`, it never touches aggregations, so a
+    script aggregation on `_score` silently described the raw, pre-normalization
+    combined score instead: a different, much wider scale than anything a hit
+    ever actually shows (confirmed empirically — the aggregation's min/max came
+    back identical whether or not the normalization pipeline was even attached
+    to the request)."""
+    if not results:
         return None
+    # `results` is already rank-ordered (descending) by OpenSearch — gap reads
+    # straight off that order before it gets discarded by sorting for the rest.
+    gap = results[0]["score"] - results[1]["score"] if len(results) > 1 else 0.0
+    scores = sorted(hit["score"] for hit in results)
     return ScoreStats(
-        count=stats["count"],
-        min=stats["min"],
-        max=stats["max"],
-        avg=stats["avg"],
-        std_deviation=stats["std_deviation"],
-        percentiles=percentiles["values"],
+        count=len(scores),
+        min=scores[0],
+        max=scores[-1],
+        avg=statistics.fmean(scores),
+        std_deviation=statistics.pstdev(scores),
+        percentiles={str(p): _percentile(scores, p) for p in SCORE_PERCENTILES},
+        gap=gap,
+        confidence=_confidence(scores),
     )
 
 
@@ -180,15 +240,26 @@ def search(
         books,
         sources,
     )
-    if include_score_stats:
-        body["aggs"] = build_score_stats_aggregations()
     # Otherwise hits.total silently caps at 10000 past that many matches.
     body["track_total_hits"] = True
+
+    offset = (page - 1) * page_size
+    if include_score_stats:
+        # A single contiguous block starting at rank 1, covering both the
+        # displayed page and the top-STATS_TOP_K stats window, so both are read
+        # from the exact same normalization pass — two independent requests with
+        # different `size` values could in principle normalize slightly
+        # differently and disagree with each other (e.g. the displayed top hit's
+        # score no longer exactly matching the stats' reported max).
+        fetch_from, fetch_size = 0, max(STATS_TOP_K, offset + page_size)
+    else:
+        fetch_from, fetch_size = offset, page_size
+
     response = client.search(
         index=index_name(language_pack),
         body=body,
-        size=page_size,
-        from_=(page - 1) * page_size,
+        size=fetch_size,
+        from_=fetch_from,
     )
 
     # A separate, size-0 request for facet counts — deliberately not aggregations
@@ -201,7 +272,13 @@ def search(
         size=0,
     )
 
-    results = [_hit_to_dict(hit) for hit in response["hits"]["hits"]]
+    all_hits = [_hit_to_dict(hit) for hit in response["hits"]["hits"]]
+    if include_score_stats:
+        results = all_hits[offset : offset + page_size]
+        score_stats = _score_stats(all_hits[:STATS_TOP_K])
+    else:
+        results = all_hits
+        score_stats = None
 
     facet_aggregations = facets_response.get("aggregations", {})
     facets = {
@@ -216,7 +293,7 @@ def search(
         page_size=page_size,
         results=results,
         facets=facets,
-        score_stats=_score_stats(response.get("aggregations", {})),
+        score_stats=score_stats,
     )
 
 
