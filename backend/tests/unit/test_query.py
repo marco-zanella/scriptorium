@@ -3,7 +3,6 @@ from app.search.query import (
     build_facets_body,
     build_hybrid_body,
     build_lexical_query,
-    build_score_stats_aggregations,
     build_semantic_query,
 )
 
@@ -190,13 +189,6 @@ def test_combiner_pipeline_normalization_technique() -> None:
     assert processor["normalization"]["technique"] == "min_max"
     assert processor["combination"]["technique"] == "geometric_mean"
     assert processor["combination"]["parameters"]["weights"] == [0.3, 0.7]
-
-
-def test_score_stats_aggregations_shape() -> None:
-    aggs = build_score_stats_aggregations()
-    assert aggs["score_stats"]["extended_stats"]["script"] == {"source": "_score"}
-    assert aggs["score_percentiles"]["percentiles"]["script"] == {"source": "_score"}
-    assert aggs["score_percentiles"]["percentiles"]["percents"]
 
 
 def test_facets_body_is_plain_bool_not_hybrid() -> None:

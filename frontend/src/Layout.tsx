@@ -7,6 +7,7 @@ export function Layout() {
   const { user, logout } = useAuth()
   const canManageUsers = user?.is_superuser || (user?.roles.includes('manage_users') ?? false)
   const canSearch = user?.is_superuser || (user?.roles.includes('use_search_engine') ?? false)
+  const canRunExperiments = user?.is_superuser || (user?.roles.includes('run_experiments') ?? false)
 
   return (
     <div className="min-h-screen bg-background">
@@ -19,6 +20,22 @@ export function Layout() {
             <Link to="/search" className="text-sm text-muted-foreground hover:text-foreground">
               Search
             </Link>
+          )}
+          {canRunExperiments && (
+            <>
+              <Link
+                to="/eval/test-cases"
+                className="text-sm text-muted-foreground hover:text-foreground"
+              >
+                Test cases
+              </Link>
+              <Link
+                to="/eval/collections"
+                className="text-sm text-muted-foreground hover:text-foreground"
+              >
+                Test collections
+              </Link>
+            </>
           )}
           {canManageUsers && (
             <Link to="/admin" className="text-sm text-muted-foreground hover:text-foreground">

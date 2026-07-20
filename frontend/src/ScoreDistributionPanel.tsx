@@ -1,14 +1,10 @@
 import { useRef, useState } from 'react'
-import type { RefObject } from 'react'
 import type { ScoreStats, SearchHit } from './api'
+import { type Bar, BarsSvg, ExportRow } from '@/components/svg-charts'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
-const CHART_WIDTH = 280
-const CHART_HEIGHT = 160
-const PADDING = { top: 12, right: 8, bottom: 20, left: 8 }
-
-type Mode = 'raw' | 'normalized' | 'standardized'
+export type Mode = 'raw' | 'normalized' | 'standardized'
 
 const MODES: { key: Mode; label: string }[] = [
   { key: 'raw', label: 'Raw' },
@@ -22,6 +18,8 @@ const STAT_TILES = [
   { key: 'max', label: 'Max' },
   { key: 'std_deviation', label: 'σ' },
   { key: 'count', label: 'n' },
+  { key: 'gap', label: 'Gap' },
+  { key: 'confidence', label: 'Conf.' },
 ] as const
 
 function ordinal(n: number): string {
@@ -30,7 +28,7 @@ function ordinal(n: number): string {
   return `${n}${suffixes[(v - 20) % 10] ?? suffixes[v] ?? suffixes[0]}`
 }
 
-function transform(value: number, stats: ScoreStats, mode: Mode): number {
+export function transform(value: number, stats: ScoreStats, mode: Mode): number {
   if (mode === 'raw') return value
   if (mode === 'normalized') {
     const range = stats.max - stats.min
@@ -39,145 +37,23 @@ function transform(value: number, stats: ScoreStats, mode: Mode): number {
   return stats.std_deviation === 0 ? 0 : (value - stats.avg) / stats.std_deviation
 }
 
-interface Bar {
-  value: number
-  tooltip: string
-  label?: string
-}
-
-function BarsSvg({
-  svgRef,
-  bars,
-  showLabels,
-  ariaLabel,
+export function ScoreDistributionPanel({
+  stats,
+  results,
+  mode: controlledMode,
+  onModeChange,
 }: {
-  svgRef: RefObject<SVGSVGElement | null>
-  bars: Bar[]
-  showLabels: boolean
-  ariaLabel: string
+  stats: ScoreStats
+  results: SearchHit[]
+  // Uncontrolled by default (own internal state, as used on the search page) —
+  // controlled when a caller needs the mode to drive something else too (e.g.
+  // the eval case page's ranked-results score column).
+  mode?: Mode
+  onModeChange?: (mode: Mode) => void
 }) {
-  const plotWidth = CHART_WIDTH - PADDING.left - PADDING.right
-  const plotHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom
-  const barGap = bars.length > 20 ? 1 : 4
-  const barWidth = Math.max((plotWidth - barGap * (bars.length - 1)) / bars.length, 1)
-
-  const values = bars.map((b) => b.value)
-  const maxValue = Math.max(...values, 0)
-  const minValue = Math.min(...values, 0)
-  const span = maxValue - minValue || 1
-  const zeroY = PADDING.top + plotHeight * (maxValue / span)
-
-  function barY(value: number) {
-    return value >= 0 ? zeroY - (value / span) * plotHeight : zeroY
-  }
-  function barHeight(value: number) {
-    return Math.max(Math.abs(value / span) * plotHeight, 1)
-  }
-
-  return (
-    <svg
-      ref={svgRef}
-      viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-      width="100%"
-      role="img"
-      aria-label={ariaLabel}
-    >
-      <line
-        x1={PADDING.left}
-        y1={zeroY}
-        x2={CHART_WIDTH - PADDING.right}
-        y2={zeroY}
-        className="stroke-border"
-        strokeWidth={1}
-      />
-      {bars.map((bar, i) => {
-        const x = PADDING.left + i * (barWidth + barGap)
-        return (
-          <g key={i}>
-            <rect
-              x={x}
-              y={barY(bar.value)}
-              width={barWidth}
-              height={barHeight(bar.value)}
-              rx={Math.min(2, barWidth / 2)}
-              className="fill-primary"
-            >
-              <title>{bar.tooltip}</title>
-            </rect>
-            {showLabels && bar.label && (
-              <text
-                x={x + barWidth / 2}
-                y={CHART_HEIGHT - 6}
-                textAnchor="middle"
-                className="fill-muted-foreground text-[9px]"
-              >
-                {bar.label}
-              </text>
-            )}
-          </g>
-        )
-      })}
-    </svg>
-  )
-}
-
-function serializeSvg(svg: SVGSVGElement): Blob {
-  const svgData = new XMLSerializer().serializeToString(svg)
-  return new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(blob)
-  link.download = filename
-  link.click()
-  URL.revokeObjectURL(link.href)
-}
-
-function exportSvg(svgRef: RefObject<SVGSVGElement | null>, filename: string) {
-  const svg = svgRef.current
-  if (!svg) return
-  downloadBlob(serializeSvg(svg), filename)
-}
-
-function exportPng(svgRef: RefObject<SVGSVGElement | null>, filename: string) {
-  const svg = svgRef.current
-  if (!svg) return
-  const svgUrl = URL.createObjectURL(serializeSvg(svg))
-
-  const image = new Image()
-  image.onload = () => {
-    const scale = 2
-    const canvas = document.createElement('canvas')
-    canvas.width = CHART_WIDTH * scale
-    canvas.height = CHART_HEIGHT * scale
-    const ctx = canvas.getContext('2d')
-    URL.revokeObjectURL(svgUrl)
-    if (!ctx) return
-    ctx.scale(scale, scale)
-    ctx.fillStyle = '#fff'
-    ctx.fillRect(0, 0, CHART_WIDTH, CHART_HEIGHT)
-    ctx.drawImage(image, 0, 0, CHART_WIDTH, CHART_HEIGHT)
-    canvas.toBlob((blob) => blob && downloadBlob(blob, filename))
-  }
-  image.src = svgUrl
-}
-
-function ExportRow({ svgRef, filenamePrefix }: { svgRef: RefObject<SVGSVGElement | null>; filenamePrefix: string }) {
-  return (
-    <div className="flex justify-center gap-2">
-      <Button variant="outline" size="sm" onClick={() => exportPng(svgRef, `${filenamePrefix}.png`)}>
-        PNG
-      </Button>
-      <Button variant="outline" size="sm" onClick={() => exportSvg(svgRef, `${filenamePrefix}.svg`)}>
-        SVG
-      </Button>
-    </div>
-  )
-}
-
-export function ScoreDistributionPanel({ stats, results }: { stats: ScoreStats; results: SearchHit[] }) {
-  const [mode, setMode] = useState<Mode>('raw')
+  const [internalMode, setInternalMode] = useState<Mode>('raw')
+  const mode = controlledMode ?? internalMode
+  const setMode = onModeChange ?? setInternalMode
   const resultsChartRef = useRef<SVGSVGElement>(null)
   const percentileChartRef = useRef<SVGSVGElement>(null)
 
@@ -216,7 +92,7 @@ export function ScoreDistributionPanel({ stats, results }: { stats: ScoreStats; 
         ))}
       </div>
 
-      <dl className="grid grid-cols-5 gap-1 rounded-md bg-background/60 py-2 text-center">
+      <dl className="grid grid-cols-4 gap-1 rounded-md bg-background/60 py-2 text-center">
         {STAT_TILES.map(({ key, label }) => (
           <div key={key}>
             <dt className="text-[10px] tracking-wide text-muted-foreground uppercase">{label}</dt>

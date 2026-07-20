@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from opensearchpy import helpers
 
 from app.auth.tokens import create_access_token
 from app.embeddings.model import encode_documents, load_model
@@ -209,6 +210,53 @@ def test_score_stats_included_when_requested(client: TestClient) -> None:
     assert stats is not None
     assert stats["count"] >= 1
     assert any(key.startswith("50") for key in stats["percentiles"])
+    assert "gap" in stats
+    assert "confidence" in stats
+
+
+def test_score_stats_window_is_decoupled_from_page_size(client: TestClient) -> None:
+    """Score-distribution stats describe a fixed top-100 window regardless of
+    how many results the caller is displaying — not the literal display page
+    (a real bug shipped and caught: n was always == page_size), and not the
+    full match count either (which can be far larger and would revive the
+    original raw-vs-normalized-scale bug's cousin: an unboundedly expensive
+    fetch). Also confirms the display page and the stats window are read from
+    the exact same query execution, so the two never disagree with each other."""
+    os_client = get_client()
+    grc = next(pack for pack in list_language_packs() if pack.iso_code == "grc")
+    actions = [
+        {
+            "_index": index_name(grc),
+            "_id": f"score-stats-decoupling-marker-{i}",
+            "_source": {
+                "book": "genesis",
+                "chapter": "3",
+                "verse": str(i),
+                "source": "gottingen",
+                "content": "score-stats-decoupling-marker",
+                "variant": [],
+            },
+        }
+        for i in range(120)
+    ]
+    helpers.bulk(os_client, actions)
+    os_client.indices.refresh(index=index_name(grc))
+
+    response = client.post(
+        "/api/search/grc",
+        json={
+            "query": "score-stats-decoupling-marker",
+            "weights": {"text": 1},
+            "page": 1,
+            "page_size": 5,
+            "include_score_stats": True,
+        },
+        headers=_bearer(1, ["use_search_engine"]),
+    )
+    body = response.json()
+    assert len(body["results"]) == 5  # still just the requested display page
+    assert body["score_stats"]["count"] == 100  # capped at the fixed stats window, not 120 or 5
+    assert body["results"][0]["score"] == body["score_stats"]["max"]
 
 
 def test_pagination(client: TestClient) -> None:

@@ -57,6 +57,22 @@ describe('Layout', () => {
     expect(screen.getByRole('link', { name: 'Users' })).toBeInTheDocument()
   })
 
+  it('hides the eval nav links for a user without run_experiments', () => {
+    mockAuth({ user: { user_id: 1, roles: ['use_rag'], is_superuser: false } })
+    renderLayout()
+
+    expect(screen.queryByRole('link', { name: 'Test cases' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Test collections' })).not.toBeInTheDocument()
+  })
+
+  it('shows the eval nav links for a user with run_experiments', () => {
+    mockAuth({ user: { user_id: 1, roles: ['run_experiments'], is_superuser: false } })
+    renderLayout()
+
+    expect(screen.getByRole('link', { name: 'Test cases' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Test collections' })).toBeInTheDocument()
+  })
+
   it('calls logout when the log out button is clicked', async () => {
     const logout = vi.fn()
     mockAuth({ logout })

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.auth.tokens import create_access_token
+from app.eval.models import TestCollection
 from app.main import app
 from app.search.models import SearchConfiguration
 
@@ -149,6 +150,32 @@ def test_delete_own_configuration(client: TestClient, db_session: Session) -> No
 
     response = client.delete(f"/api/search/configurations/{created['id']}", headers=headers)
     assert response.status_code == 204
+
+
+def test_delete_rejects_configuration_used_by_a_test_collection(
+    client: TestClient, db_session: Session
+) -> None:
+    user = _create_db_user(db_session, "oswald")
+    headers = _bearer(user.id, ["use_search_engine"])
+    created = client.post(
+        "/api/search/configurations",
+        json={"name": "in use", "weights": SAMPLE_WEIGHTS},
+        headers=headers,
+    ).json()
+
+    collection = TestCollection(
+        owner_id=user.id,
+        name="uses the config above",
+        search_configuration_id=created["id"],
+        books=[],
+        sources=[],
+    )
+    db_session.add(collection)
+    db_session.commit()
+
+    response = client.delete(f"/api/search/configurations/{created['id']}", headers=headers)
+    assert response.status_code == 409
+    assert "1 test collection" in response.json()["detail"]
 
 
 def test_cannot_delete_another_users_configuration(client: TestClient, db_session: Session) -> None:

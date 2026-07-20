@@ -13,6 +13,11 @@ import {
   type SearchConfigurationWeights,
 } from './api'
 import {
+  COMBINATION_TECHNIQUES,
+  COMBINER_TECHNIQUES,
+  WEIGHT_CATEGORY_FIELDS,
+} from './search-configuration-labels'
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -52,30 +57,9 @@ import {
 import { Slider } from '@/components/ui/slider'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
-const CATEGORY_FIELDS = [
-  { category: 'Language Agnostic', fields: ['text', 'shingle', 'trigram'] },
-  { category: 'Language Aware', fields: ['language'] },
-  { category: 'Semantics', fields: ['semantic'] },
-] as const
-
 const EMPTY_WEIGHTS = { text: 0, shingle: 0, trigram: 0, language: 0, semantic: 0 }
 const DEFAULT_BUCKET_WEIGHTS = { lexical: 0.5, semantic: 0.5 }
 const DEFAULT_COMBINER: Combiner = { technique: 'z_score', combination: 'arithmetic_mean' }
-const COMBINER_TECHNIQUES: { value: CombinerTechnique; label: string }[] = [
-  { value: 'z_score', label: 'Z-Score normalization' },
-  { value: 'min_max', label: 'Min-Max normalization' },
-  { value: 'l2', label: 'L2 normalization' },
-  { value: 'rrf', label: 'Reciprocal Rank Fusion' },
-]
-// arithmetic_mean is the only combination z_score's negative values can be
-// combined via — geometric/harmonic mean can't handle them — so when z_score is
-// selected, no combination picker is shown at all (see below), not just a
-// filtered one.
-const COMBINATION_TECHNIQUES: { value: CombinationTechnique; label: string }[] = [
-  { value: 'arithmetic_mean', label: 'Arithmetic mean' },
-  { value: 'geometric_mean', label: 'Geometric mean' },
-  { value: 'harmonic_mean', label: 'Harmonic mean' },
-]
 
 export function SearchConfigurationsPage() {
   const [configurations, setConfigurations] = useState<SearchConfigurationOut[]>([])
@@ -97,7 +81,6 @@ export function SearchConfigurationsPage() {
   }, [])
 
   async function handleDelete(config: SearchConfigurationOut) {
-    if (config.id === null) return
     await deleteSearchConfiguration(config.id)
     await load()
   }
@@ -198,7 +181,6 @@ export function SearchConfigurationsPage() {
                           <ConfigurationForm
                             initial={config}
                             onSubmit={async (name, weights) => {
-                              if (config.id === null) return
                               await updateSearchConfiguration(config.id, name, weights)
                               setEditing(null)
                               await load()
@@ -287,7 +269,7 @@ function ConfigurationForm({
       </div>
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-4">
-        {CATEGORY_FIELDS.map(({ category, fields }) => (
+        {WEIGHT_CATEGORY_FIELDS.map(({ category, fields }) => (
           <div key={category} className="space-y-2">
             <p className="text-sm font-medium text-foreground">{category}</p>
             <div className="grid grid-cols-[auto_1fr_1fr] items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">

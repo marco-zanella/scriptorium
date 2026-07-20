@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
@@ -64,6 +66,8 @@ class ScoreStats(BaseModel):
     avg: float
     std_deviation: float
     percentiles: dict[str, float]
+    gap: float
+    confidence: float
 
 
 class SearchResponse(BaseModel):
@@ -146,14 +150,5 @@ def search_language(
             name: [FacetBucket(key=b.key, count=b.count) for b in buckets]
             for name, buckets in result.facets.items()
         },
-        score_stats=ScoreStats(
-            count=result.score_stats.count,
-            min=result.score_stats.min,
-            max=result.score_stats.max,
-            avg=result.score_stats.avg,
-            std_deviation=result.score_stats.std_deviation,
-            percentiles=result.score_stats.percentiles,
-        )
-        if result.score_stats
-        else None,
+        score_stats=ScoreStats(**asdict(result.score_stats)) if result.score_stats else None,
     )

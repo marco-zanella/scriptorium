@@ -201,6 +201,8 @@ export interface ScoreStats {
   avg: number
   std_deviation: number
   percentiles: Record<string, number>
+  gap: number
+  confidence: number
 }
 
 export interface SearchResponse {
@@ -259,7 +261,7 @@ export interface SearchConfigurationWeights {
 }
 
 export interface SearchConfigurationOut {
-  id: number | null
+  id: number
   name: string
   weights: SearchConfigurationWeights
   is_preset: boolean
@@ -292,4 +294,283 @@ export function updateSearchConfiguration(
 
 export function deleteSearchConfiguration(id: number): Promise<void> {
   return request<void>(`/search/configurations/${id}`, { method: 'DELETE' })
+}
+
+export interface TestCaseTargetOut {
+  id: number
+  target: string
+  relevance: number
+}
+
+export interface TestCaseOut {
+  id: number
+  content: string
+  language: string
+  source: string | null
+  context: string | null
+  tags: string[]
+  targets: TestCaseTargetOut[]
+}
+
+export interface TestCaseInput {
+  content: string
+  language: string
+  source?: string | null
+  context?: string | null
+  tags?: string[]
+}
+
+export function listTestCases(): Promise<TestCaseOut[]> {
+  return request<TestCaseOut[]>('/eval/test-cases')
+}
+
+export function contentSearch(language: string, query: string): Promise<SearchHit[]> {
+  const params = new URLSearchParams({ language, query })
+  return request<SearchHit[]>(`/eval/test-cases/content-search?${params.toString()}`)
+}
+
+export function createTestCase(body: TestCaseInput): Promise<TestCaseOut> {
+  return request<TestCaseOut>('/eval/test-cases', { method: 'POST', body: JSON.stringify(body) })
+}
+
+export function updateTestCase(id: number, body: TestCaseInput): Promise<TestCaseOut> {
+  return request<TestCaseOut>(`/eval/test-cases/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
+export function deleteTestCase(id: number): Promise<void> {
+  return request<void>(`/eval/test-cases/${id}`, { method: 'DELETE' })
+}
+
+export function addTestCaseTarget(
+  caseId: number,
+  target: string,
+  relevance: number,
+): Promise<TestCaseTargetOut> {
+  return request<TestCaseTargetOut>(`/eval/test-cases/${caseId}/targets`, {
+    method: 'POST',
+    body: JSON.stringify({ target, relevance }),
+  })
+}
+
+export function updateTestCaseTarget(
+  caseId: number,
+  targetId: number,
+  target: string,
+  relevance: number,
+): Promise<TestCaseTargetOut> {
+  return request<TestCaseTargetOut>(`/eval/test-cases/${caseId}/targets/${targetId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ target, relevance }),
+  })
+}
+
+export function deleteTestCaseTarget(caseId: number, targetId: number): Promise<void> {
+  return request<void>(`/eval/test-cases/${caseId}/targets/${targetId}`, { method: 'DELETE' })
+}
+
+export interface TestCollectionOut {
+  id: number
+  name: string
+  description: string | null
+  search_configuration_id: number
+  books: string[]
+  sources: string[]
+  test_case_count: number
+}
+
+export interface TestCollectionInput {
+  name: string
+  description?: string | null
+  search_configuration_id: number
+  books?: string[]
+  sources?: string[]
+}
+
+export function listTestCollections(): Promise<TestCollectionOut[]> {
+  return request<TestCollectionOut[]>('/eval/test-collections')
+}
+
+export function getCollectionContentFacets(): Promise<{ book: string[]; source: string[] }> {
+  return request<{ book: string[]; source: string[] }>('/eval/test-collections/content-facets')
+}
+
+export function createTestCollection(body: TestCollectionInput): Promise<TestCollectionOut> {
+  return request<TestCollectionOut>('/eval/test-collections', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function getTestCollection(id: number): Promise<TestCollectionOut> {
+  return request<TestCollectionOut>(`/eval/test-collections/${id}`)
+}
+
+export function updateTestCollection(
+  id: number,
+  body: TestCollectionInput,
+): Promise<TestCollectionOut> {
+  return request<TestCollectionOut>(`/eval/test-collections/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
+export function deleteTestCollection(id: number): Promise<void> {
+  return request<void>(`/eval/test-collections/${id}`, { method: 'DELETE' })
+}
+
+export function listMemberTestCases(collectionId: number): Promise<TestCaseOut[]> {
+  return request<TestCaseOut[]>(`/eval/test-collections/${collectionId}/test-cases`)
+}
+
+export function addMemberTestCase(collectionId: number, caseId: number): Promise<TestCaseOut[]> {
+  return request<TestCaseOut[]>(`/eval/test-collections/${collectionId}/test-cases/${caseId}`, {
+    method: 'POST',
+  })
+}
+
+export function removeMemberTestCase(
+  collectionId: number,
+  caseId: number,
+): Promise<TestCaseOut[]> {
+  return request<TestCaseOut[]>(`/eval/test-collections/${collectionId}/test-cases/${caseId}`, {
+    method: 'DELETE',
+  })
+}
+
+export interface ResultCollectionOut {
+  id: number
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  configuration_snapshot: { name: string; weights: SearchConfigurationWeights }
+  books_snapshot: string[]
+  sources_snapshot: string[]
+  started_at: string | null
+  completed_at: string | null
+  error: string | null
+  recall_at_k: number | null
+  precision_at_k: number | null
+  mrr: number | null
+  ndcg_at_k: number | null
+}
+
+export function runTestCollection(collectionId: number): Promise<ResultCollectionOut> {
+  return request<ResultCollectionOut>(`/eval/test-collections/${collectionId}/run`, {
+    method: 'POST',
+  })
+}
+
+export function listResultCollections(collectionId: number): Promise<ResultCollectionOut[]> {
+  return request<ResultCollectionOut[]>(
+    `/eval/test-collections/${collectionId}/result-collections`,
+  )
+}
+
+export function deleteResultCollection(resultCollectionId: number): Promise<void> {
+  return request<void>(`/eval/result-collections/${resultCollectionId}`, { method: 'DELETE' })
+}
+
+export interface CaseMetricsOut {
+  result_case_id: number
+  test_case_id: number
+  recall_at_k: number
+  precision_at_k: number
+  reciprocal_rank: number
+  ndcg_at_k: number
+}
+
+export interface ResultCollectionReportOut {
+  id: number
+  test_collection_id: number
+  test_collection_name: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  configuration_snapshot: { name: string; weights: SearchConfigurationWeights }
+  books_snapshot: string[]
+  sources_snapshot: string[]
+  k: number
+  tau: number
+  recall_at_k: number
+  precision_at_k: number
+  mrr: number
+  ndcg_at_k: number
+  cases: CaseMetricsOut[]
+}
+
+export function getResultCollectionReport(
+  resultCollectionId: number,
+  options: { k?: number; tau?: number } = {},
+): Promise<ResultCollectionReportOut> {
+  const params = new URLSearchParams()
+  if (options.k !== undefined) params.set('k', String(options.k))
+  if (options.tau !== undefined) params.set('tau', String(options.tau))
+  const query = params.toString()
+  return request<ResultCollectionReportOut>(
+    `/eval/result-collections/${resultCollectionId}${query ? `?${query}` : ''}`,
+  )
+}
+
+export interface ResultCaseDetailOut {
+  id: number
+  test_case_id: number
+  test_collection_id: number
+  test_collection_name: string
+  results: SearchHit[]
+  snapshot: {
+    content: string
+    language: string
+    source: string | null
+    context: string | null
+    tags: string[]
+    targets: { target: string; relevance: number }[]
+  }
+  score_stats: ScoreStats | null
+  recall_at_k: number
+  precision_at_k: number
+  reciprocal_rank: number
+  ndcg_at_k: number
+}
+
+export function getDocument(language: string, docId: string): Promise<SearchHit> {
+  return request<SearchHit>(`/eval/test-cases/document/${language}/${encodeURIComponent(docId)}`)
+}
+
+export function getResultCaseDetail(
+  resultCollectionId: number,
+  caseId: number,
+  options: { k?: number; tau?: number } = {},
+): Promise<ResultCaseDetailOut> {
+  const params = new URLSearchParams()
+  if (options.k !== undefined) params.set('k', String(options.k))
+  if (options.tau !== undefined) params.set('tau', String(options.tau))
+  const query = params.toString()
+  return request<ResultCaseDetailOut>(
+    `/eval/result-collections/${resultCollectionId}/cases/${caseId}${query ? `?${query}` : ''}`,
+  )
+}
+
+export interface MetricSweepPointOut {
+  k: number
+  recall_at_k: number
+  precision_at_k: number
+  ndcg_at_k: number
+}
+
+export interface MetricSweepOut {
+  tau: number
+  mrr: number
+  points: MetricSweepPointOut[]
+}
+
+export function getMetricSweep(
+  resultCollectionId: number,
+  options: { tau?: number } = {},
+): Promise<MetricSweepOut> {
+  const params = new URLSearchParams()
+  if (options.tau !== undefined) params.set('tau', String(options.tau))
+  const query = params.toString()
+  return request<MetricSweepOut>(
+    `/eval/result-collections/${resultCollectionId}/metric-sweep${query ? `?${query}` : ''}`,
+  )
 }

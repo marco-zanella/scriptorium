@@ -68,11 +68,17 @@
     --border: oklch(0.923 0.003 48.717);
     --input: oklch(0.923 0.003 48.717);
     --ring: oklch(0.709 0.01 56.259);
-    --chart-1: oklch(0.869 0.005 56.366);
-    --chart-2: oklch(0.553 0.013 58.071);
-    --chart-3: oklch(0.444 0.011 73.639);
-    --chart-4: oklch(0.374 0.01 67.558);
-    --chart-5: oklch(0.268 0.007 34.298);
+    /* Categorical chart palette (blue/green/magenta/yellow/aqua), fixed hue
+       order — validated colorblind-safe (CVD ΔE, normal-vision ΔE, contrast)
+       against this surface via the dataviz skill's palette validator. The
+       shadcn default here was a near-achromatic lightness ramp (chroma
+       ~0.005-0.013, well under the 0.10 "reads as gray" floor) — useless for
+       telling same-shaped series apart by color. */
+    --chart-1: #2a78d6; /* blue */
+    --chart-2: #008300; /* green */
+    --chart-3: #e87ba4; /* magenta */
+    --chart-4: #eda100; /* yellow */
+    --chart-5: #1baf7a; /* aqua */
     --radius: 0.625rem;
     --sidebar: oklch(0.985 0.001 106.423);
     --sidebar-foreground: oklch(0.147 0.004 49.25);
@@ -103,11 +109,14 @@
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.553 0.013 58.071);
-    --chart-1: oklch(0.869 0.005 56.366);
-    --chart-2: oklch(0.553 0.013 58.071);
-    --chart-3: oklch(0.444 0.011 73.639);
-    --chart-4: oklch(0.374 0.01 67.558);
-    --chart-5: oklch(0.268 0.007 34.298);
+    /* Same fixed hue order as light mode, re-stepped for the dark surface —
+       not an automatic flip. See the :root block above for why these
+       replaced shadcn's near-achromatic defaults. */
+    --chart-1: #3987e5; /* blue */
+    --chart-2: #008300; /* green */
+    --chart-3: #d55181; /* magenta */
+    --chart-4: #c98500; /* yellow */
+    --chart-5: #199e70; /* aqua */
     --sidebar: oklch(0.216 0.006 56.043);
     --sidebar-foreground: oklch(0.985 0.001 106.423);
     --sidebar-primary: oklch(0.488 0.243 264.376);
