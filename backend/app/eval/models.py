@@ -114,4 +114,7 @@ class ResultCase(Base):
     )
     results: Mapped[list] = mapped_column(JSONB, nullable=False)
     snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # Nullable: runs recorded before this field existed have no score distribution
+    # to show, not an error case to handle specially.
+    score_stats: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

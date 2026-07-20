@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from functools import lru_cache
 
-from opensearchpy import OpenSearch
+from opensearchpy import NotFoundError, OpenSearch
 
 from app.embeddings.model import Encoder, encode_query, load_model
 from app.registry import LanguagePack
@@ -127,6 +127,21 @@ def browse_facets(
         "book": _buckets(aggregations, "by_book"),
         "source": _buckets(aggregations, "by_source"),
     }
+
+
+def get_document(client: OpenSearch, language_pack: LanguagePack, doc_id: str) -> dict | None:
+    """Single-document lookup by exact id — used to resolve a test-case target's
+    content when it wasn't among a search's returned hits, where there's no
+    scored hit to read `content` off of. Not an error when the id doesn't
+    exist: the index may have changed since the target was recorded."""
+    if not client.indices.exists(index=index_name(language_pack)):
+        return None
+    try:
+        response = client.get(index=index_name(language_pack), id=doc_id)
+    except NotFoundError:
+        return None
+    # No relevance score to report for a direct id lookup (not a ranked query hit).
+    return _hit_to_dict({"_id": response["_id"], "_source": response["_source"], "_score": 0.0})
 
 
 def search(

@@ -518,13 +518,20 @@ export interface ResultCaseDetailOut {
   snapshot: {
     content: string
     language: string
+    source: string | null
     context: string | null
+    tags: string[]
     targets: { target: string; relevance: number }[]
   }
+  score_stats: ScoreStats | null
   recall_at_k: number
   precision_at_k: number
   reciprocal_rank: number
   ndcg_at_k: number
+}
+
+export function getDocument(language: string, docId: string): Promise<SearchHit> {
+  return request<SearchHit>(`/eval/test-cases/document/${language}/${encodeURIComponent(docId)}`)
 }
 
 export function getResultCaseDetail(

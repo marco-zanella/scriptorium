@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.api.search import ScoreStats
 from app.auth.dependencies import Principal, require_role
 from app.db.session import get_db
 from app.eval.metrics import aggregate, evaluate_case
@@ -48,6 +49,7 @@ class ResultCaseDetailOut(BaseModel):
     test_collection_name: str
     results: list[dict]
     snapshot: dict
+    score_stats: ScoreStats | None
     recall_at_k: float
     precision_at_k: float
     reciprocal_rank: float
@@ -183,6 +185,7 @@ def get_result_case_detail(
         test_collection_name=result_collection.test_collection.name,
         results=result_case.results,
         snapshot=result_case.snapshot,
+        score_stats=ScoreStats(**result_case.score_stats) if result_case.score_stats else None,
         recall_at_k=metrics["recall_at_k"],
         precision_at_k=metrics["precision_at_k"],
         reciprocal_rank=metrics["reciprocal_rank"],

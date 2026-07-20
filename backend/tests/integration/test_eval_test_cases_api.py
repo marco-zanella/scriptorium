@@ -5,6 +5,9 @@ from sqlalchemy.orm import Session
 from app.auth.models import User
 from app.auth.tokens import create_access_token
 from app.main import app
+from app.registry import get_language_pack
+from app.search.client import get_client
+from app.search.index_manager import ensure_index, index_name
 
 
 @pytest.fixture
@@ -185,6 +188,73 @@ def test_add_list_update_delete_targets(client: TestClient, db_session: Session)
     )
     assert delete_response.status_code == 204
     assert client.get(f"/api/eval/test-cases/{case['id']}/targets", headers=headers).json() == []
+
+
+def test_document_lookup_requires_run_experiments_role(
+    client: TestClient, db_session: Session
+) -> None:
+    user = _create_db_user(db_session, "ivan")
+    response = client.get(
+        "/api/eval/test-cases/document/eng/kjv:genesis:1:1",
+        headers=_bearer(user.id, ["use_rag"]),
+    )
+    assert response.status_code == 403
+
+
+def test_document_lookup_unknown_language_returns_422(
+    client: TestClient, db_session: Session
+) -> None:
+    user = _create_db_user(db_session, "judy")
+    response = client.get(
+        "/api/eval/test-cases/document/not-a-real-language/some-id",
+        headers=_bearer(user.id, ["run_experiments"]),
+    )
+    assert response.status_code == 422
+
+
+def test_document_lookup_returns_404_when_document_missing(
+    client: TestClient, db_session: Session
+) -> None:
+    user = _create_db_user(db_session, "kevin")
+    response = client.get(
+        "/api/eval/test-cases/document/eng/no-such-document",
+        headers=_bearer(user.id, ["run_experiments"]),
+    )
+    assert response.status_code == 404
+
+
+def test_document_lookup_returns_indexed_document(client: TestClient, db_session: Session) -> None:
+    user = _create_db_user(db_session, "laura")
+    eng = get_language_pack("eng")
+    os_client = get_client()
+    name = ensure_index(os_client, eng)
+    try:
+        os_client.index(
+            index=index_name(eng),
+            id="kjv:genesis:1:1-document-lookup-marker",
+            body={
+                "id": "kjv:genesis:1:1-document-lookup-marker",
+                "type": "verse",
+                "book": "genesis",
+                "chapter": "1",
+                "verse": "1",
+                "source": "kjv",
+                "content": "In the beginning God created the heaven and the earth.",
+                "variant": [],
+            },
+            refresh=True,
+        )
+
+        response = client.get(
+            "/api/eval/test-cases/document/eng/kjv:genesis:1:1-document-lookup-marker",
+            headers=_bearer(user.id, ["run_experiments"]),
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == "kjv:genesis:1:1-document-lookup-marker"
+        assert body["content"] == "In the beginning God created the heaven and the earth."
+    finally:
+        os_client.indices.delete(index=name, ignore_unavailable=True)
 
 
 def test_rejects_duplicate_target_and_out_of_range_relevance(

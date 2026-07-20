@@ -44,7 +44,12 @@ def _create_db_user(db_session: Session, username: str) -> User:
 
 
 def _seed_result_collection_with_one_case(
-    db_session: Session, owner: User, ranked_ids: list[str], targets: list[dict]
+    db_session: Session,
+    owner: User,
+    ranked_ids: list[str],
+    targets: list[dict],
+    *,
+    score_stats: dict | None = None,
 ) -> ResultCollection:
     config = SearchConfiguration(
         owner_id=owner.id, name=f"{owner.username}-config", weights=SAMPLE_WEIGHTS
@@ -87,7 +92,15 @@ def _seed_result_collection_with_one_case(
         test_case_id=test_case.id,
         result_collection_id=result_collection.id,
         results=[{"id": doc_id, "type": "verse", "score": 1.0} for doc_id in ranked_ids],
-        snapshot={"content": "q", "language": "eng", "context": None, "targets": targets},
+        snapshot={
+            "content": "q",
+            "language": "eng",
+            "source": None,
+            "context": None,
+            "tags": [],
+            "targets": targets,
+        },
+        score_stats=score_stats,
     )
     db_session.add(result_case)
     db_session.commit()
@@ -171,6 +184,46 @@ def test_case_detail_returns_raw_results_and_metrics(
     body = response.json()
     assert [r["id"] for r in body["results"]] == ["a", "b", "c"]
     assert body["snapshot"]["targets"] == [{"target": "c", "relevance": 3}]
+    assert body["score_stats"] is None
+
+
+def test_case_detail_includes_score_stats_when_present(
+    client: TestClient, db_session: Session
+) -> None:
+    user = _create_db_user(db_session, "grace")
+    headers = _bearer(user.id, ["run_experiments"])
+    result_collection = _seed_result_collection_with_one_case(
+        db_session,
+        user,
+        ranked_ids=["a", "b", "c"],
+        targets=[{"target": "c", "relevance": 3}],
+        score_stats={
+            "count": 3,
+            "min": 0.5,
+            "max": 1.5,
+            "avg": 1.0,
+            "std_deviation": 0.4,
+            "percentiles": {"50.0": 1.0},
+        },
+    )
+    report = client.get(
+        f"/api/eval/result-collections/{result_collection.id}", headers=headers
+    ).json()
+    case_id = report["cases"][0]["result_case_id"]
+
+    response = client.get(
+        f"/api/eval/result-collections/{result_collection.id}/cases/{case_id}", headers=headers
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["score_stats"] == {
+        "count": 3,
+        "min": 0.5,
+        "max": 1.5,
+        "avg": 1.0,
+        "std_deviation": 0.4,
+        "percentiles": {"50.0": 1.0},
+    }
 
 
 def test_cannot_see_another_users_result_collection(

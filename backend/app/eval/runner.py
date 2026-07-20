@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from datetime import UTC, datetime
 
 from app.db.session import SessionLocal
@@ -37,16 +38,20 @@ def run_test_collection(result_collection_id: int) -> None:
                 sources=result_collection.sources_snapshot,
                 page=1,
                 page_size=50,
+                include_score_stats=True,
             )
             db.add(
                 ResultCase(
                     test_case_id=test_case.id,
                     result_collection_id=result_collection.id,
                     results=result.results,
+                    score_stats=asdict(result.score_stats) if result.score_stats else None,
                     snapshot={
                         "content": test_case.content,
                         "language": test_case.language,
+                        "source": test_case.source,
                         "context": test_case.context,
+                        "tags": test_case.tags,
                         "targets": [
                             {"target": t.target, "relevance": t.relevance}
                             for t in test_case.targets

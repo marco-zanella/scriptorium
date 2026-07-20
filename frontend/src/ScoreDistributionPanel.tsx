@@ -4,7 +4,7 @@ import { type Bar, BarsSvg, ExportRow } from '@/components/svg-charts'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
-type Mode = 'raw' | 'normalized' | 'standardized'
+export type Mode = 'raw' | 'normalized' | 'standardized'
 
 const MODES: { key: Mode; label: string }[] = [
   { key: 'raw', label: 'Raw' },
@@ -26,7 +26,7 @@ function ordinal(n: number): string {
   return `${n}${suffixes[(v - 20) % 10] ?? suffixes[v] ?? suffixes[0]}`
 }
 
-function transform(value: number, stats: ScoreStats, mode: Mode): number {
+export function transform(value: number, stats: ScoreStats, mode: Mode): number {
   if (mode === 'raw') return value
   if (mode === 'normalized') {
     const range = stats.max - stats.min
@@ -35,8 +35,23 @@ function transform(value: number, stats: ScoreStats, mode: Mode): number {
   return stats.std_deviation === 0 ? 0 : (value - stats.avg) / stats.std_deviation
 }
 
-export function ScoreDistributionPanel({ stats, results }: { stats: ScoreStats; results: SearchHit[] }) {
-  const [mode, setMode] = useState<Mode>('raw')
+export function ScoreDistributionPanel({
+  stats,
+  results,
+  mode: controlledMode,
+  onModeChange,
+}: {
+  stats: ScoreStats
+  results: SearchHit[]
+  // Uncontrolled by default (own internal state, as used on the search page) —
+  // controlled when a caller needs the mode to drive something else too (e.g.
+  // the eval case page's ranked-results score column).
+  mode?: Mode
+  onModeChange?: (mode: Mode) => void
+}) {
+  const [internalMode, setInternalMode] = useState<Mode>('raw')
+  const mode = controlledMode ?? internalMode
+  const setMode = onModeChange ?? setInternalMode
   const resultsChartRef = useRef<SVGSVGElement>(null)
   const percentileChartRef = useRef<SVGSVGElement>(null)
 

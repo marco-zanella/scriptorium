@@ -8,7 +8,7 @@ from app.db.session import get_db
 from app.eval.models import TestCase, TestCaseTarget
 from app.registry import UnknownLanguageError, get_language_pack
 from app.search.client import get_client
-from app.search.service import assisted_content_search
+from app.search.service import assisted_content_search, get_document
 
 router = APIRouter(prefix="/api/eval/test-cases", tags=["eval-test-cases"])
 
@@ -126,6 +126,27 @@ def content_search(
         return []
     hits = assisted_content_search(get_client(), language_pack, query)
     return [SearchHit(**hit) for hit in hits]
+
+
+# Registered ahead of GET /{case_id} for the same reason as content-search above.
+@router.get("/document/{language}/{doc_id}", response_model=SearchHit)
+def get_test_case_target_document(
+    language: str,
+    doc_id: str,
+    principal: Principal = Depends(require_role("run_experiments")),
+) -> SearchHit:
+    """Resolves a target id to its document content — needed for a "missed
+    target" (relevant but never retrieved), where there's no ranked hit to
+    read content off of."""
+    try:
+        language_pack = get_language_pack(language)
+    except UnknownLanguageError:
+        raise HTTPException(status_code=422, detail=f"Unknown language: {language}") from None
+
+    hit = get_document(get_client(), language_pack, doc_id)
+    if hit is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return SearchHit(**hit)
 
 
 @router.get("/{case_id}", response_model=TestCaseOut)
