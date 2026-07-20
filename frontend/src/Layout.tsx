@@ -8,6 +8,7 @@ export function Layout() {
   const canManageUsers = user?.is_superuser || (user?.roles.includes('manage_users') ?? false)
   const canSearch = user?.is_superuser || (user?.roles.includes('use_search_engine') ?? false)
   const canRunExperiments = user?.is_superuser || (user?.roles.includes('run_experiments') ?? false)
+  const canUseRag = user?.is_superuser || (user?.roles.includes('use_rag') ?? false)
 
   return (
     <div className="min-h-screen bg-background">
@@ -36,6 +37,11 @@ export function Layout() {
                 Test collections
               </Link>
             </>
+          )}
+          {canUseRag && (
+            <Link to="/rag" className="text-sm text-muted-foreground hover:text-foreground">
+              Chat
+            </Link>
           )}
           {canManageUsers && (
             <Link to="/admin" className="text-sm text-muted-foreground hover:text-foreground">

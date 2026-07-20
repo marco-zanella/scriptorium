@@ -10,6 +10,9 @@ import { EvalTestCollectionsPage } from './EvalTestCollectionsPage'
 import { EvalTestCollectionTestCasesPage } from './EvalTestCollectionTestCasesPage'
 import { Layout } from './Layout'
 import { LoginPage } from './LoginPage'
+import { RagConversationPage } from './RagConversationPage'
+import { RagEmptyState } from './RagEmptyState'
+import { RagPage } from './RagPage'
 import { RequireAuth, RequireRole } from './route-guards'
 import { SearchConfigurationsPage } from './SearchConfigurationsPage'
 import { SearchPage } from './SearchPage'
@@ -110,6 +113,17 @@ function App() {
                 </RequireRole>
               }
             />
+            <Route
+              path="rag"
+              element={
+                <RequireRole role="use_rag">
+                  <RagPage />
+                </RequireRole>
+              }
+            >
+              <Route index element={<RagEmptyState />} />
+              <Route path=":id" element={<RagConversationPage />} />
+            </Route>
           </Route>
         </Routes>
       </BrowserRouter>

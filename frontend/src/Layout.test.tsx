@@ -73,6 +73,20 @@ describe('Layout', () => {
     expect(screen.getByRole('link', { name: 'Test collections' })).toBeInTheDocument()
   })
 
+  it('hides the Chat nav link for a user without use_rag', () => {
+    mockAuth({ user: { user_id: 1, roles: ['run_experiments'], is_superuser: false } })
+    renderLayout()
+
+    expect(screen.queryByRole('link', { name: 'Chat' })).not.toBeInTheDocument()
+  })
+
+  it('shows the Chat nav link for a user with use_rag', () => {
+    mockAuth({ user: { user_id: 1, roles: ['use_rag'], is_superuser: false } })
+    renderLayout()
+
+    expect(screen.getByRole('link', { name: 'Chat' })).toBeInTheDocument()
+  })
+
   it('calls logout when the log out button is clicked', async () => {
     const logout = vi.fn()
     mockAuth({ logout })

@@ -665,6 +665,116 @@ export interface ComparisonOut {
   comparisons: RunComparisonOut[]
 }
 
+export interface ConversationOut {
+  id: number
+  title: string | null
+  created_at: string
+  updated_at: string
+}
+
+export function listConversations(): Promise<ConversationOut[]> {
+  return request<ConversationOut[]>('/rag/conversations')
+}
+
+export function createConversation(title?: string | null): Promise<ConversationOut> {
+  return request<ConversationOut>('/rag/conversations', {
+    method: 'POST',
+    body: JSON.stringify({ title: title ?? null }),
+  })
+}
+
+export function getConversation(id: number): Promise<ConversationOut> {
+  return request<ConversationOut>(`/rag/conversations/${id}`)
+}
+
+export function renameConversation(id: number, title: string | null): Promise<ConversationOut> {
+  return request<ConversationOut>(`/rag/conversations/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  })
+}
+
+export function deleteConversation(id: number): Promise<void> {
+  return request<void>(`/rag/conversations/${id}`, { method: 'DELETE' })
+}
+
+export interface CitationOut {
+  id: string
+  book: string | null
+  chapter: string | null
+  verse: string | null
+  source: string | null
+  content: string | null
+}
+
+export interface MessageOut {
+  id: number
+  role: 'user' | 'assistant'
+  content: string | null
+  status: 'pending' | 'streaming' | 'completed' | 'failed' | null
+  error: string | null
+  citations: CitationOut[]
+  created_at: string
+  updated_at: string
+}
+
+export function listMessages(conversationId: number): Promise<MessageOut[]> {
+  return request<MessageOut[]>(`/rag/conversations/${conversationId}/messages`)
+}
+
+export type RagStreamEvent =
+  | { type: 'token'; text: string }
+  | { type: 'tool_call'; status: 'running' | 'done'; name: string; args: Record<string, unknown> }
+  | { type: 'citations'; citations: CitationOut[] }
+  | { type: 'done'; message: MessageOut }
+  | { type: 'error'; message: string }
+
+// Bypasses request() like exportResultCollection() does, for the same reason
+// in spirit: this needs to read the response body incrementally as it
+// arrives, not wait for request()'s single response.json() to resolve.
+// Server-Sent Events framing (data: <json>\n\n per event - the backend sets
+// sep="\n" specifically so this matches), read by hand rather than via
+// EventSource (which can't carry this POST body).
+export async function streamMessage(
+  conversationId: number,
+  content: string,
+  onEvent: (event: RagStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/rag/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  })
+
+  if (!response.ok || !response.body) {
+    const body = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new ApiError(response.status, body.detail ?? 'Request failed')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    let boundary = buffer.indexOf('\n\n')
+    while (boundary !== -1) {
+      const frame = buffer.slice(0, boundary)
+      buffer = buffer.slice(boundary + 2)
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('data: ')) {
+          onEvent(JSON.parse(line.slice(6)) as RagStreamEvent)
+        }
+      }
+      boundary = buffer.indexOf('\n\n')
+    }
+  }
+}
+
 export function getComparison(
   baselineId: number,
   candidateIds: number[],
