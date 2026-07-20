@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AdminPage } from './AdminPage'
 import { DashboardPage } from './DashboardPage'
+import { EvalCompareResultsPage } from './EvalCompareResultsPage'
 import { EvalResultCasePage } from './EvalResultCasePage'
 import { EvalResultPage } from './EvalResultPage'
 import { EvalTestCasesPage } from './EvalTestCasesPage'
@@ -82,6 +83,14 @@ function App() {
               element={
                 <RequireRole role="run_experiments">
                   <EvalTestCollectionResultsPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="eval/collections/:id/compare"
+              element={
+                <RequireRole role="run_experiments">
+                  <EvalCompareResultsPage />
                 </RequireRole>
               }
             />

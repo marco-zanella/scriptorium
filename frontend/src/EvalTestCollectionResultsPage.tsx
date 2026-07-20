@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
   deleteResultCollection,
@@ -29,6 +29,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 const POLL_INTERVAL_MS = 2000
@@ -44,11 +45,13 @@ function formatDate(value: string | null): string {
 export function EvalTestCollectionResultsPage() {
   const { id } = useParams()
   const collectionId = Number(id)
+  const navigate = useNavigate()
 
   const [collection, setCollection] = useState<TestCollectionOut | null>(null)
   const [runs, setRuns] = useState<ResultCollectionOut[]>([])
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectedRunIds, setSelectedRunIds] = useState<Set<number>>(new Set())
 
   async function load() {
     try {
@@ -93,6 +96,37 @@ export function EvalTestCollectionResultsPage() {
   async function handleDelete(resultCollectionId: number) {
     await deleteResultCollection(resultCollectionId)
     setRuns((current) => current.filter((run) => run.id !== resultCollectionId))
+    setSelectedRunIds((current) => {
+      const next = new Set(current)
+      next.delete(resultCollectionId)
+      return next
+    })
+  }
+
+  function handleToggleSelected(runId: number) {
+    setSelectedRunIds((current) => {
+      const next = new Set(current)
+      if (next.has(runId)) next.delete(runId)
+      else next.add(runId)
+      return next
+    })
+  }
+
+  function handleCompareSelected() {
+    const selectedRuns = runs.filter((run) => selectedRunIds.has(run.id))
+    if (selectedRuns.length < 2) return
+    // earliest-started run becomes the default baseline; the compare page
+    // lets the user swap it afterward
+    const [baseline, ...candidates] = [...selectedRuns].sort((a, b) => {
+      const aTime = a.started_at ? Date.parse(a.started_at) : Infinity
+      const bTime = b.started_at ? Date.parse(b.started_at) : Infinity
+      return aTime - bTime
+    })
+    const params = new URLSearchParams({
+      baseline: String(baseline.id),
+      candidates: candidates.map((run) => run.id).join(','),
+    })
+    navigate(`/eval/collections/${collectionId}/compare?${params.toString()}`)
   }
 
   if (!collection) {
@@ -119,9 +153,18 @@ export function EvalTestCollectionResultsPage() {
 
       <div className="flex items-center justify-between gap-4">
         <h1 className="font-heading text-xl leading-snug font-medium">{collection.name}</h1>
-        <Button onClick={handleRun} disabled={running || collection.test_case_count === 0}>
-          {running ? 'Starting…' : 'Run'}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleCompareSelected}
+            disabled={selectedRunIds.size < 2}
+          >
+            Compare selected
+          </Button>
+          <Button onClick={handleRun} disabled={running || collection.test_case_count === 0}>
+            {running ? 'Starting…' : 'Run'}
+          </Button>
+        </div>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -129,6 +172,7 @@ export function EvalTestCollectionResultsPage() {
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-8" />
             <TableHead>Configuration</TableHead>
             <TableHead>MRR</TableHead>
             <TableHead>Recall@10</TableHead>
@@ -142,13 +186,22 @@ export function EvalTestCollectionResultsPage() {
         <TableBody>
           {runs.length === 0 && (
             <TableRow>
-              <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
+              <TableCell colSpan={9} className="text-center text-sm text-muted-foreground">
                 No runs yet.
               </TableCell>
             </TableRow>
           )}
           {runs.map((run) => (
             <TableRow key={run.id}>
+              <TableCell>
+                {run.status === 'completed' && (
+                  <Checkbox
+                    checked={selectedRunIds.has(run.id)}
+                    onCheckedChange={() => handleToggleSelected(run.id)}
+                    aria-label={`Select run #${run.id} for comparison`}
+                  />
+                )}
+              </TableCell>
               <TableCell>{run.configuration_snapshot.name}</TableCell>
               <TableCell className="tabular-nums">{formatMetric(run.mrr)}</TableCell>
               <TableCell className="tabular-nums">{formatMetric(run.recall_at_k)}</TableCell>

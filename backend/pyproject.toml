@@ -17,6 +17,7 @@ dependencies = [
     "transformers>=4.40",
     "sentence-transformers>=3.0",
     "sentencepiece>=0.2",
+    "scipy>=1.13",
 ]
 
 [project.optional-dependencies]
