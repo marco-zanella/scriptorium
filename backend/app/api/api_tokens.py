@@ -98,3 +98,16 @@ def revoke_api_token(
     token = _get_own_token(db, principal, token_id)
     token.revoked_at = datetime.now(UTC)
     db.commit()
+
+
+@router.delete("/{token_id}/purge", status_code=204)
+def purge_api_token(
+    token_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(get_current_principal),
+) -> None:
+    token = _get_own_token(db, principal, token_id)
+    if token.revoked_at is None:
+        raise HTTPException(status_code=409, detail="Only revoked API keys can be deleted")
+    db.delete(token)
+    db.commit()

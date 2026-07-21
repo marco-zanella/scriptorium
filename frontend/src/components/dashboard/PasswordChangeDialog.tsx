@@ -17,7 +17,7 @@ export function PasswordChangeCard() {
   const [open, setOpen] = useState(false)
 
   return (
-    <Card>
+    <Card className="max-w-sm">
       <CardHeader>
         <h2 className="font-heading text-lg leading-snug font-medium">Password</h2>
       </CardHeader>

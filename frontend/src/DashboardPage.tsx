@@ -64,12 +64,10 @@ export function DashboardPage() {
         </section>
       )}
 
-      <section className="space-y-3">
+      <section className="space-y-4">
         <h2 className="font-heading text-lg font-medium">Account</h2>
-        <div className="grid gap-4 sm:grid-cols-2 max-w-2xl">
-          <PasswordChangeCard />
-          {canIngest && <ApiKeysCard />}
-        </div>
+        <PasswordChangeCard />
+        {canIngest && <ApiKeysCard />}
       </section>
     </div>
   )

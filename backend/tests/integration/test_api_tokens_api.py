@@ -130,3 +130,51 @@ def test_revoke_requires_ownership(client: TestClient, db_session: Session) -> N
     )
 
     assert response.status_code == 404
+
+
+def test_purge_requires_authentication(client: TestClient) -> None:
+    response = client.delete("/api/api-tokens/1/purge")
+    assert response.status_code == 401
+
+
+def test_purge_rejects_an_active_token(client: TestClient, db_session: Session) -> None:
+    user = _create_db_user(db_session, "iris", roles=["index_content"])
+    headers = _bearer(user.id, ["index_content"])
+    created = client.post(
+        "/api/api-tokens", headers=headers, json={"scopes": ["index_content"]}
+    ).json()
+
+    response = client.delete(f"/api/api-tokens/{created['id']}/purge", headers=headers)
+
+    assert response.status_code == 409
+    assert db_session.query(ApiToken).filter(ApiToken.id == created["id"]).one_or_none() is not None
+
+
+def test_purge_removes_a_revoked_token(client: TestClient, db_session: Session) -> None:
+    user = _create_db_user(db_session, "jack", roles=["index_content"])
+    headers = _bearer(user.id, ["index_content"])
+    created = client.post(
+        "/api/api-tokens", headers=headers, json={"scopes": ["index_content"]}
+    ).json()
+    client.delete(f"/api/api-tokens/{created['id']}", headers=headers)
+
+    response = client.delete(f"/api/api-tokens/{created['id']}/purge", headers=headers)
+
+    assert response.status_code == 204
+    assert db_session.query(ApiToken).filter(ApiToken.id == created["id"]).one_or_none() is None
+
+
+def test_purge_requires_ownership(client: TestClient, db_session: Session) -> None:
+    owner = _create_db_user(db_session, "kate", roles=["index_content"])
+    other = _create_db_user(db_session, "liam", roles=["index_content"])
+    owner_headers = _bearer(owner.id, ["index_content"])
+    created = client.post(
+        "/api/api-tokens", headers=owner_headers, json={"scopes": ["index_content"]}
+    ).json()
+    client.delete(f"/api/api-tokens/{created['id']}", headers=owner_headers)
+
+    response = client.delete(
+        f"/api/api-tokens/{created['id']}/purge", headers=_bearer(other.id, ["index_content"])
+    )
+
+    assert response.status_code == 404

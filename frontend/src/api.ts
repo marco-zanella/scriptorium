@@ -160,6 +160,10 @@ export function revokeApiToken(id: number): Promise<void> {
   return request<void>(`/api-tokens/${id}`, { method: 'DELETE' })
 }
 
+export function purgeApiToken(id: number): Promise<void> {
+  return request<void>(`/api-tokens/${id}/purge`, { method: 'DELETE' })
+}
+
 export interface LanguageOut {
   iso_code: string
   display_name: string
