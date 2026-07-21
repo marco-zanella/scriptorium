@@ -148,7 +148,7 @@ describe('EvalResultCasePage', () => {
   it('summarizes targets with resolved content, relevance, and position — blank for a missed target', async () => {
     // Controlled manually so the still-loading DOM state below can be asserted
     // deterministically instead of racing the mock's own microtask resolution.
-    let resolveDocument: (hit: SearchHit) => void
+    let resolveDocument!: (hit: SearchHit) => void
     vi.mocked(api.getDocument).mockReset().mockReturnValue(
       new Promise((resolve) => {
         resolveDocument = resolve
