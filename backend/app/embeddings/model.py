@@ -59,23 +59,29 @@ class _MeanSkipFirstEncoder:
         self._model.to(self._device)
         self._model.eval()
 
+    _BATCH_SIZE = 32
+
     def encode(self, texts: list[str]) -> list[list[float]]:
         import torch
         import torch.nn.functional as F
 
-        inputs = self._tokenizer(
-            texts, padding=True, truncation=True, return_tensors="pt", max_length=512
-        )
-        inputs = {k: v.to(self._device) for k, v in inputs.items()}
-        with torch.inference_mode():
-            hidden_states = self._model(**inputs).last_hidden_state
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), self._BATCH_SIZE):
+            batch = texts[start : start + self._BATCH_SIZE]
+            inputs = self._tokenizer(
+                batch, padding=True, truncation=True, return_tensors="pt", max_length=512
+            )
+            inputs = {k: v.to(self._device) for k, v in inputs.items()}
+            with torch.inference_mode():
+                hidden_states = self._model(**inputs).last_hidden_state
 
-        attention_mask = inputs["attention_mask"][:, 1:, None]
-        summed = (hidden_states[:, 1:] * attention_mask).sum(dim=1)
-        counts = attention_mask.sum(dim=1)
-        pooled = summed / counts
-        normalized = F.normalize(pooled, p=2, dim=-1)
-        return [list(vector) for vector in normalized.tolist()]
+            attention_mask = inputs["attention_mask"][:, 1:, None]
+            summed = (hidden_states[:, 1:] * attention_mask).sum(dim=1)
+            counts = attention_mask.sum(dim=1)
+            pooled = summed / counts
+            normalized = F.normalize(pooled, p=2, dim=-1)
+            vectors.extend(list(vector) for vector in normalized.tolist())
+        return vectors
 
 
 def load_model(spec: EmbeddingSpec) -> Encoder:
