@@ -146,6 +146,15 @@ describe('EvalResultCasePage', () => {
   })
 
   it('summarizes targets with resolved content, relevance, and position — blank for a missed target', async () => {
+    // Controlled manually so the still-loading DOM state below can be asserted
+    // deterministically instead of racing the mock's own microtask resolution.
+    let resolveDocument!: (hit: SearchHit) => void
+    vi.mocked(api.getDocument).mockReset().mockReturnValue(
+      new Promise((resolve) => {
+        resolveDocument = resolve
+      }),
+    )
+
     renderPage()
     await screen.findByRole('heading', { name: 'in the beginning' })
 
@@ -164,10 +173,14 @@ describe('EvalResultCasePage', () => {
     expect(within(rows[1]).getByText('3')).toBeInTheDocument()
 
     // Missed target: no position, content resolved asynchronously via getDocument.
+    // Both the content and position cells show the placeholder dash until resolution.
     expect(within(rows[2]).getByText('kjv:genesis:3:1')).toBeInTheDocument()
     expect(within(rows[2]).getByText('Relevant')).toBeInTheDocument()
-    expect(within(rows[2]).getByText('—')).toBeInTheDocument()
+    expect(within(rows[2]).getAllByText('—')).toHaveLength(2)
+
+    resolveDocument(MISSED_DOCUMENT)
     expect(await within(rows[2]).findByText('Now the serpent was more subtil.')).toBeInTheDocument()
+    expect(within(rows[2]).getAllByText('—')).toHaveLength(1)
     expect(api.getDocument).toHaveBeenCalledWith('eng', 'kjv:genesis:3:1')
   })
 
