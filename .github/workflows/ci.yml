@@ -41,6 +41,11 @@ jobs:
       # Isolated from any real index namespace — same reasoning as scriptorium_test
       # for Postgres above (tests create/delete indices, never touch dev data).
       OPENSEARCH_INDEX_PREFIX: ci_test_
+      # ollama with no OLLAMA_BASE_URL reachable — fine, CI never exercises the LLM.
+      LLM_PROVIDER: ollama
+      LLM_MODEL: llama3.1
+      LLM_MAX_TOKENS: 1024
+      LLM_TEMPERATURE: 0.3
 
     steps:
       - uses: actions/checkout@v4
