@@ -45,6 +45,7 @@ describe('LoginPage', () => {
   it('redirects away from the form when a session already exists on mount', async () => {
     vi.mocked(api.me).mockReset().mockResolvedValue({
       user_id: 1,
+      username: 'alice',
       roles: ['use_rag'],
       is_superuser: false,
     })
@@ -59,7 +60,12 @@ describe('LoginPage', () => {
   it('redirects away from the form after a successful login', async () => {
     await renderAndWaitForForm()
     vi.mocked(api.login).mockResolvedValueOnce({ access_token: 'x', token_type: 'bearer' })
-    vi.mocked(api.me).mockResolvedValueOnce({ user_id: 1, roles: ['use_rag'], is_superuser: false })
+    vi.mocked(api.me).mockResolvedValueOnce({
+      user_id: 1,
+      username: 'alice',
+      roles: ['use_rag'],
+      is_superuser: false,
+    })
 
     await userEvent.type(screen.getByLabelText('Username'), 'alice')
     await userEvent.type(screen.getByLabelText('Password'), 's3cret-pw')
@@ -73,7 +79,12 @@ describe('LoginPage', () => {
   it('defaults remember me to false', async () => {
     await renderAndWaitForForm()
     vi.mocked(api.login).mockResolvedValueOnce({ access_token: 'x', token_type: 'bearer' })
-    vi.mocked(api.me).mockResolvedValueOnce({ user_id: 1, roles: [], is_superuser: false })
+    vi.mocked(api.me).mockResolvedValueOnce({
+      user_id: 1,
+      username: 'alice',
+      roles: [],
+      is_superuser: false,
+    })
 
     await userEvent.type(screen.getByLabelText('Username'), 'alice')
     await userEvent.type(screen.getByLabelText('Password'), 's3cret-pw')
@@ -85,7 +96,12 @@ describe('LoginPage', () => {
   it('passes remember me through when checked', async () => {
     await renderAndWaitForForm()
     vi.mocked(api.login).mockResolvedValueOnce({ access_token: 'x', token_type: 'bearer' })
-    vi.mocked(api.me).mockResolvedValueOnce({ user_id: 1, roles: [], is_superuser: false })
+    vi.mocked(api.me).mockResolvedValueOnce({
+      user_id: 1,
+      username: 'alice',
+      roles: [],
+      is_superuser: false,
+    })
 
     await userEvent.type(screen.getByLabelText('Username'), 'alice')
     await userEvent.type(screen.getByLabelText('Password'), 's3cret-pw')

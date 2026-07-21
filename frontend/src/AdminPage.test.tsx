@@ -47,7 +47,7 @@ const BOB: UserOut = {
 function mockAuth(isSuperuser: boolean) {
   vi.mocked(useAuth).mockReturnValue({
     status: 'authenticated',
-    user: { user_id: 99, roles: ['manage_users'], is_superuser: isSuperuser },
+    user: { user_id: 99, username: 'admin', roles: ['manage_users'], is_superuser: isSuperuser },
     login: vi.fn(),
     logout: vi.fn(),
   })
