@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DashboardPage } from './DashboardPage'
 
 vi.mock('./auth-provider', () => ({
@@ -11,6 +11,11 @@ vi.mock('./api', async () => {
   const actual = await vi.importActual<typeof import('./api')>('./api')
   return {
     ...actual,
+    listSearchConfigurations: vi.fn().mockResolvedValue([]),
+    listConversations: vi.fn().mockResolvedValue([]),
+    listTestCollections: vi.fn().mockResolvedValue([]),
+    listUsers: vi.fn().mockResolvedValue([]),
+    listApiTokens: vi.fn().mockResolvedValue([]),
     createApiToken: vi.fn(),
   }
 })
@@ -18,22 +23,24 @@ vi.mock('./api', async () => {
 const { useAuth } = await import('./auth-provider')
 const api = await import('./api')
 
+beforeEach(() => {
+  vi.mocked(api.listSearchConfigurations).mockReset().mockResolvedValue([])
+  vi.mocked(api.listConversations).mockReset().mockResolvedValue([])
+  vi.mocked(api.listTestCollections).mockReset().mockResolvedValue([])
+  vi.mocked(api.listUsers).mockReset().mockResolvedValue([])
+  vi.mocked(api.listApiTokens).mockReset().mockResolvedValue([])
+  vi.mocked(api.createApiToken).mockReset()
+})
+
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <DashboardPage />
+    </MemoryRouter>,
+  )
+}
+
 describe('DashboardPage', () => {
-  it("shows the current user's id, roles, and superuser status", () => {
-    vi.mocked(useAuth).mockReturnValue({
-      status: 'authenticated',
-      user: { user_id: 42, roles: ['use_rag', 'use_search_engine'], is_superuser: false },
-      login: vi.fn(),
-      logout: vi.fn(),
-    })
-
-    render(<DashboardPage />)
-
-    expect(screen.getByText('42')).toBeInTheDocument()
-    expect(screen.getByText('use_rag, use_search_engine')).toBeInTheDocument()
-    expect(screen.getByText('no')).toBeInTheDocument()
-  })
-
   it('renders nothing when there is no user', () => {
     vi.mocked(useAuth).mockReturnValue({
       status: 'anonymous',
@@ -42,47 +49,104 @@ describe('DashboardPage', () => {
       logout: vi.fn(),
     })
 
-    const { container } = render(<DashboardPage />)
+    const { container } = renderPage()
 
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('hides the ingestion API key card for a user without index_content', () => {
+  it('renders a service card only for roles the user holds', () => {
     vi.mocked(useAuth).mockReturnValue({
       status: 'authenticated',
-      user: { user_id: 1, roles: ['use_rag'], is_superuser: false },
+      user: { user_id: 1, username: 'alice', roles: ['use_rag'], is_superuser: false },
       login: vi.fn(),
       logout: vi.fn(),
     })
 
-    render(<DashboardPage />)
+    renderPage()
 
-    expect(screen.queryByText('Ingestion API key')).not.toBeInTheDocument()
+    expect(screen.getByText('RAG Chat')).toBeInTheDocument()
+    expect(screen.queryByText('Search')).not.toBeInTheDocument()
+    expect(screen.queryByText('Eval Harness')).not.toBeInTheDocument()
+    expect(screen.queryByText('User Admin')).not.toBeInTheDocument()
+    expect(screen.queryByText('Ingestion')).not.toBeInTheDocument()
   })
 
-  it('lets a user with index_content generate and reveal an API key once', async () => {
+  it('shows every service card to a superuser regardless of roles', () => {
     vi.mocked(useAuth).mockReturnValue({
       status: 'authenticated',
-      user: { user_id: 1, roles: ['index_content'], is_superuser: false },
+      user: { user_id: 1, username: 'root', roles: [], is_superuser: true },
       login: vi.fn(),
       logout: vi.fn(),
     })
-    vi.mocked(api.createApiToken).mockResolvedValue({
-      id: 1,
-      name: 'ingestion-cli',
-      scopes: ['index_content'],
-      created_at: '2026-01-01T00:00:00Z',
-      expires_at: null,
-      revoked_at: null,
-      raw_key: 'scriptorium_sk_test123',
+
+    renderPage()
+
+    expect(screen.getByText('Search')).toBeInTheDocument()
+    expect(screen.getByText('RAG Chat')).toBeInTheDocument()
+    expect(screen.getByText('Eval Harness')).toBeInTheDocument()
+    expect(screen.getByText('User Admin')).toBeInTheDocument()
+    expect(screen.getByText('Ingestion')).toBeInTheDocument()
+    expect(
+      screen.getByText('You have full administrative access to every service.'),
+    ).toBeInTheDocument()
+  })
+
+  it('renders the ingestion card as a plain anchor to the API keys section', () => {
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'authenticated',
+      user: { user_id: 1, username: 'alice', roles: ['index_content'], is_superuser: false },
+      login: vi.fn(),
+      logout: vi.fn(),
     })
 
-    render(<DashboardPage />)
+    renderPage()
 
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Generate API key' }))
+    const link = screen.getByText('Ingestion').closest('a')
+    expect(link).toHaveAttribute('href', '#api-keys')
+  })
 
-    await waitFor(() => expect(api.createApiToken).toHaveBeenCalledWith('ingestion-cli', ['index_content']))
-    expect(await screen.findByDisplayValue('scriptorium_sk_test123')).toBeInTheDocument()
+  it('shows a contact-administrator message when the user holds no service roles', () => {
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'authenticated',
+      user: { user_id: 1, username: 'nobody', roles: [], is_superuser: false },
+      login: vi.fn(),
+      logout: vi.fn(),
+    })
+
+    renderPage()
+
+    expect(
+      screen.getByText("You don't have access to any services yet — contact an administrator."),
+    ).toBeInTheDocument()
+  })
+
+  it("renders a search stat excluding shared presets from the user's count", async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'authenticated',
+      user: { user_id: 1, username: 'alice', roles: ['use_search_engine'], is_superuser: false },
+      login: vi.fn(),
+      logout: vi.fn(),
+    })
+    vi.mocked(api.listSearchConfigurations).mockResolvedValue([
+      { id: 1, name: 'mine', weights: { weights: {}, variant_weights: {} }, is_preset: false },
+      { id: 2, name: 'preset', weights: { weights: {}, variant_weights: {} }, is_preset: true },
+    ])
+
+    renderPage()
+
+    expect(await screen.findByText('1 saved configuration')).toBeInTheDocument()
+  })
+
+  it('does not render the API keys card for a user without index_content', () => {
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'authenticated',
+      user: { user_id: 1, username: 'alice', roles: ['use_rag'], is_superuser: false },
+      login: vi.fn(),
+      logout: vi.fn(),
+    })
+
+    renderPage()
+
+    expect(screen.queryByText('API keys')).not.toBeInTheDocument()
   })
 })

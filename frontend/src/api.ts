@@ -32,6 +32,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export interface MeResponse {
   user_id: number
+  username: string
   roles: string[]
   is_superuser: boolean
 }
@@ -62,6 +63,13 @@ export function refresh(): Promise<TokenResponse> {
 
 export function logout(): Promise<void> {
   return request<void>('/auth/logout', { method: 'POST' })
+}
+
+export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return request<void>('/auth/password', {
+    method: 'PATCH',
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  })
 }
 
 export const ALL_ROLES = [
@@ -142,6 +150,18 @@ export function createApiToken(name: string, scopes: string[]): Promise<ApiToken
     method: 'POST',
     body: JSON.stringify({ name, scopes }),
   })
+}
+
+export function listApiTokens(): Promise<ApiTokenOut[]> {
+  return request<ApiTokenOut[]>('/api-tokens')
+}
+
+export function revokeApiToken(id: number): Promise<void> {
+  return request<void>(`/api-tokens/${id}`, { method: 'DELETE' })
+}
+
+export function purgeApiToken(id: number): Promise<void> {
+  return request<void>(`/api-tokens/${id}/purge`, { method: 'DELETE' })
 }
 
 export interface LanguageOut {

@@ -74,6 +74,15 @@ def test_me_returns_current_user_via_cookie(client: TestClient, db_session: Sess
     assert response.json()["is_superuser"] is True
 
 
+def test_me_includes_username(client: TestClient, db_session: Session) -> None:
+    _create_user(db_session)
+    _login(client)
+
+    response = client.get("/api/auth/me")
+
+    assert response.json()["username"] == "alice"
+
+
 def test_me_returns_current_user_via_bearer_token(client: TestClient, db_session: Session) -> None:
     _create_user(db_session)
     access_token = _login(client).json()["access_token"]
@@ -143,3 +152,63 @@ def test_logout_invalidates_the_refresh_token(client: TestClient, db_session: Se
 
     refresh_after_logout = client.post("/api/auth/refresh")
     assert refresh_after_logout.status_code == 401
+
+
+def test_change_password_requires_authentication(client: TestClient) -> None:
+    response = client.patch(
+        "/api/auth/password",
+        json={"current_password": "s3cret-pw", "new_password": "new-password-123"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_change_password_rejects_wrong_current_password(
+    client: TestClient, db_session: Session
+) -> None:
+    _create_user(db_session)
+    _login(client)
+
+    response = client.patch(
+        "/api/auth/password",
+        json={"current_password": "wrong", "new_password": "new-password-123"},
+    )
+
+    assert response.status_code == 400
+
+
+def test_change_password_rejects_short_new_password(
+    client: TestClient, db_session: Session
+) -> None:
+    _create_user(db_session)
+    _login(client)
+
+    response = client.patch(
+        "/api/auth/password",
+        json={"current_password": "s3cret-pw", "new_password": "short"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_change_password_succeeds_and_old_password_stops_working(
+    client: TestClient, db_session: Session
+) -> None:
+    _create_user(db_session)
+    _login(client)
+
+    response = client.patch(
+        "/api/auth/password",
+        json={"current_password": "s3cret-pw", "new_password": "new-password-123"},
+    )
+    assert response.status_code == 204
+
+    old_password_login = client.post(
+        "/api/auth/login", json={"username": "alice", "password": "s3cret-pw"}
+    )
+    assert old_password_login.status_code == 401
+
+    new_password_login = client.post(
+        "/api/auth/login", json={"username": "alice", "password": "new-password-123"}
+    )
+    assert new_password_login.status_code == 200

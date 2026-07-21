@@ -56,7 +56,7 @@ describe('RequireAuth', () => {
   })
 
   it('renders children when authenticated', () => {
-    mockAuth({ status: 'authenticated', user: { user_id: 1, roles: [], is_superuser: false } })
+    mockAuth({ status: 'authenticated', user: { user_id: 1, username: 'alice', roles: [], is_superuser: false } })
     renderRequireAuth(<div>Protected</div>)
     expect(screen.getByText('Protected')).toBeInTheDocument()
   })
@@ -66,7 +66,7 @@ describe('RequireRole', () => {
   it('redirects to / when the user lacks the required role', () => {
     mockAuth({
       status: 'authenticated',
-      user: { user_id: 1, roles: ['use_rag'], is_superuser: false },
+      user: { user_id: 1, username: 'alice', roles: ['use_rag'], is_superuser: false },
     })
     renderRequireRole('manage_users', <div>Admin content</div>)
     expect(screen.getByText('Home page')).toBeInTheDocument()
@@ -75,14 +75,14 @@ describe('RequireRole', () => {
   it('renders children when the user has the required role', () => {
     mockAuth({
       status: 'authenticated',
-      user: { user_id: 1, roles: ['manage_users'], is_superuser: false },
+      user: { user_id: 1, username: 'alice', roles: ['manage_users'], is_superuser: false },
     })
     renderRequireRole('manage_users', <div>Admin content</div>)
     expect(screen.getByText('Admin content')).toBeInTheDocument()
   })
 
   it('renders children for a superuser regardless of explicit roles', () => {
-    mockAuth({ status: 'authenticated', user: { user_id: 1, roles: [], is_superuser: true } })
+    mockAuth({ status: 'authenticated', user: { user_id: 1, username: 'alice', roles: [], is_superuser: true } })
     renderRequireRole('manage_users', <div>Admin content</div>)
     expect(screen.getByText('Admin content')).toBeInTheDocument()
   })

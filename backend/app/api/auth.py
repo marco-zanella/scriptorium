@@ -1,12 +1,12 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import Principal, get_current_principal
 from app.auth.models import RefreshToken, User
-from app.auth.security import verify_password
+from app.auth.security import hash_password, verify_password
 from app.auth.tokens import (
     REFRESH_TOKEN_EXPIRE_DAYS,
     create_access_token,
@@ -31,8 +31,14 @@ class TokenResponse(BaseModel):
 
 class MeResponse(BaseModel):
     user_id: int
+    username: str
     roles: list[str]
     is_superuser: bool
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
 
 
 def _issue_tokens(response: Response, db: Session, user: User, remember: bool) -> str:
@@ -113,9 +119,26 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)) 
 
 
 @router.get("/me", response_model=MeResponse)
-def me(principal: Principal = Depends(get_current_principal)) -> MeResponse:
+def me(
+    principal: Principal = Depends(get_current_principal), db: Session = Depends(get_db)
+) -> MeResponse:
+    user = db.query(User).filter(User.id == principal.user_id).one()
     return MeResponse(
         user_id=principal.user_id,
+        username=user.username,
         roles=sorted(principal.roles),
         is_superuser=principal.is_superuser,
     )
+
+
+@router.patch("/password", status_code=204)
+def change_password(
+    body: PasswordChangeRequest,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(get_current_principal),
+) -> None:
+    user = db.query(User).filter(User.id == principal.user_id).one()
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    user.password_hash = hash_password(body.new_password)
+    db.commit()
